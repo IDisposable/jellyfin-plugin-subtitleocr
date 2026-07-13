@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Subtitle OCR</title>
+</head>
+<body>
+<div id="SubtitleOcrConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="SubtitleOcrConfigForm">
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="NOcrDatabasePath">nOCR database path</label>
+                    <input id="NOcrDatabasePath" name="NOcrDatabasePath" type="text" is="emby-input" />
+                    <div class="fieldDescription">
+                        Path to a Subtitle Edit-compatible .nocr file. Leave empty to use the bundled Latin database.
+                        Databases trained in Subtitle Edit's nOCR window drop in directly.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused">Per-language databases</label>
+                    <div class="fieldDescription">
+                        Optional overrides matched on the subtitle's language (ISO 639 code, e.g. rus, ell).
+                        The path may be absolute or a bare file name resolved against the plugin's
+                        <code>nocr</code> data folder. Simplest option: drop a file named
+                        <code>{language}.nocr</code> (e.g. <code>rus.nocr</code>) into that folder and it is
+                        used automatically with no entry here. Resolution order per language: an entry below,
+                        then a drop-in <code>{language}.nocr</code>, then the database path above, then the
+                        bundled Latin database.
+                    </div>
+                    <div id="LanguageDatabases"></div>
+                    <button id="AddLanguageDatabase" is="emby-button" type="button" class="raised block emby-button">
+                        <span>Add language</span>
+                    </button>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="UnknownCharacter">Unknown character placeholder</label>
+                    <input id="UnknownCharacter" name="UnknownCharacter" type="text" is="emby-input" />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="SpaceMinGap">Minimum gap for word space (px)</label>
+                    <input id="SpaceMinGap" name="SpaceMinGap" type="number" is="emby-input" min="1" max="50" />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="MaxWrongPixels">Max wrong pixels per glyph</label>
+                    <input id="MaxWrongPixels" name="MaxWrongPixels" type="number" is="emby-input" min="0" max="100" />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="MaxUnknownRatio">Max unknown-glyph ratio before dropping an event</label>
+                    <input id="MaxUnknownRatio" name="MaxUnknownRatio" type="number" is="emby-input" min="0" max="1" step="0.05" />
+                </div>
+
+                <label class="checkboxContainer">
+                    <input id="OverwriteExisting" name="OverwriteExisting" type="checkbox" is="emby-checkbox" />
+                    <span>Overwrite existing SRT files</span>
+                </label>
+
+                <label class="checkboxContainer">
+                    <input id="DeepSeek" name="DeepSeek" type="checkbox" is="emby-checkbox" />
+                    <span>Enable widest (slowest) matching pass</span>
+                </label>
+
+                <label class="checkboxContainer">
+                    <input id="InvertLuma" name="InvertLuma" type="checkbox" is="emby-checkbox" />
+                    <span>Invert luma (dark text on light background)</span>
+                </label>
+
+                <label class="checkboxContainer">
+                    <input id="SkipForcedOnly" name="SkipForcedOnly" type="checkbox" is="emby-checkbox" />
+                    <span>Skip forced-only subpictures</span>
+                </label>
+
+                <label class="checkboxContainer">
+                    <input id="SkipLanguagesWithTextSubtitle" name="SkipLanguagesWithTextSubtitle" type="checkbox" is="emby-checkbox" />
+                    <span>Skip image tracks whose language already has a text subtitle</span>
+                </label>
+
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                        <span>Save</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script type="text/javascript">
+        var SubtitleOcrConfig = {
+            pluginUniqueId: 'b7a9c2e4-5d31-4f8a-9c06-3e2d1a8b4f70'
+        };
+
+        function addLanguageDatabaseRow(language, path) {
+            var row = document.createElement('div');
+            row.className = 'langDbRow';
+            row.style.cssText = 'display:flex; gap:1em; align-items:center; margin:0.5em 0;';
+
+            var lang = document.createElement('input');
+            lang.setAttribute('is', 'emby-input');
+            lang.type = 'text';
+            lang.className = 'langDbLanguage';
+            lang.placeholder = 'Language (e.g. rus)';
+            lang.value = language || '';
+            lang.style.maxWidth = '10em';
+
+            var pathInput = document.createElement('input');
+            pathInput.setAttribute('is', 'emby-input');
+            pathInput.type = 'text';
+            pathInput.className = 'langDbPath';
+            pathInput.placeholder = 'Path to .nocr file';
+            pathInput.value = path || '';
+
+            var remove = document.createElement('button');
+            remove.setAttribute('is', 'emby-button');
+            remove.type = 'button';
+            remove.className = 'raised emby-button';
+            remove.innerHTML = '<span>Remove</span>';
+            remove.addEventListener('click', function () { row.remove(); });
+
+            row.appendChild(lang);
+            row.appendChild(pathInput);
+            row.appendChild(remove);
+            document.querySelector('#LanguageDatabases').appendChild(row);
+        }
+
+        document.querySelector('#AddLanguageDatabase')
+            .addEventListener('click', function () { addLanguageDatabaseRow('', ''); });
+
+        document.querySelector('#SubtitleOcrConfigPage')
+            .addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(SubtitleOcrConfig.pluginUniqueId).then(function (config) {
+                    document.querySelector('#NOcrDatabasePath').value = config.NOcrDatabasePath || '';
+                    var langContainer = document.querySelector('#LanguageDatabases');
+                    langContainer.innerHTML = '';
+                    (config.LanguageDatabases || []).forEach(function (entry) {
+                        addLanguageDatabaseRow(entry.Language, entry.Path);
+                    });
+                    document.querySelector('#UnknownCharacter').value = config.UnknownCharacter || '*';
+                    document.querySelector('#SpaceMinGap').value = config.SpaceMinGap;
+                    document.querySelector('#MaxWrongPixels').value = config.MaxWrongPixels;
+                    document.querySelector('#MaxUnknownRatio').value = config.MaxUnknownRatio;
+                    document.querySelector('#OverwriteExisting').checked = config.OverwriteExisting;
+                    document.querySelector('#DeepSeek').checked = config.DeepSeek;
+                    document.querySelector('#InvertLuma').checked = config.InvertLuma;
+                    document.querySelector('#SkipForcedOnly').checked = config.SkipForcedOnly;
+                    document.querySelector('#SkipLanguagesWithTextSubtitle').checked = config.SkipLanguagesWithTextSubtitle;
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+        document.querySelector('#SubtitleOcrConfigForm')
+            .addEventListener('submit', function (e) {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(SubtitleOcrConfig.pluginUniqueId).then(function (config) {
+                    config.NOcrDatabasePath = document.querySelector('#NOcrDatabasePath').value;
+                    config.LanguageDatabases = Array.prototype.map.call(
+                        document.querySelectorAll('#LanguageDatabases .langDbRow'),
+                        function (row) {
+                            return {
+                                Language: row.querySelector('.langDbLanguage').value.trim(),
+                                Path: row.querySelector('.langDbPath').value.trim()
+                            };
+                        }).filter(function (entry) { return entry.Language && entry.Path; });
+                    config.UnknownCharacter = document.querySelector('#UnknownCharacter').value;
+                    config.SpaceMinGap = parseInt(document.querySelector('#SpaceMinGap').value, 10);
+                    config.MaxWrongPixels = parseInt(document.querySelector('#MaxWrongPixels').value, 10);
+                    config.MaxUnknownRatio = parseFloat(document.querySelector('#MaxUnknownRatio').value);
+                    config.OverwriteExisting = document.querySelector('#OverwriteExisting').checked;
+                    config.DeepSeek = document.querySelector('#DeepSeek').checked;
+                    config.InvertLuma = document.querySelector('#InvertLuma').checked;
+                    config.SkipForcedOnly = document.querySelector('#SkipForcedOnly').checked;
+                    config.SkipLanguagesWithTextSubtitle = document.querySelector('#SkipLanguagesWithTextSubtitle').checked;
+                    ApiClient.updatePluginConfiguration(SubtitleOcrConfig.pluginUniqueId, config).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                    });
+                });
+                e.preventDefault();
+                return false;
+            });
+    </script>
+</div>
+</body>
+</html>

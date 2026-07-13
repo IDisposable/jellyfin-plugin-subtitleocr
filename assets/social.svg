@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" aria-label="Subtitle OCR Jellyfin Plugin">
+  <defs>
+    <linearGradient id="a" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#14151b"/>
+      <stop offset="1" stop-color="#0a0b0f"/>
+    </linearGradient>
+    <linearGradient id="b" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#aa5cc3"/>
+      <stop offset="1" stop-color="#00a4dc"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#a)" d="M0 0h1280v640H0z"/>
+  <circle cx="1140" cy="110" r="380" fill="url(#b)" opacity=".12"/>
+  <circle cx="120" cy="600" r="260" fill="url(#b)" opacity=".08"/>
+  <!-- Mark: a pixelated glyph (image subtitle) recognized into text lines (OCR). -->
+  <g transform="translate(150 262)">
+    <!-- pixel grid: a stylized "T" of filled tiles, faint tiles for the rest, one dashed (family nod) -->
+    <g fill="url(#b)">
+      <rect width="30" height="30" x="0" y="0" rx="7"/>
+      <rect width="30" height="30" x="42" y="0" rx="7"/>
+      <rect width="30" height="30" x="84" y="0" rx="7"/>
+      <rect width="30" height="30" x="42" y="42" rx="7"/>
+      <rect width="30" height="30" x="42" y="84" rx="7"/>
+    </g>
+    <g fill="url(#b)" opacity=".15">
+      <rect width="30" height="30" x="0" y="42" rx="7"/>
+      <rect width="30" height="30" x="84" y="42" rx="7"/>
+      <rect width="30" height="30" x="0" y="84" rx="7"/>
+    </g>
+    <rect width="30" height="30" x="84" y="84" fill="none" stroke="#aa5cc3" stroke-dasharray="6 5" stroke-width="3" rx="7"/>
+    <!-- recognized text lines -->
+    <g fill="url(#b)">
+      <rect width="62" height="20" x="132" y="8" rx="10"/>
+      <rect width="48" height="20" x="132" y="44" rx="10"/>
+      <rect width="56" height="20" x="132" y="80" rx="10"/>
+    </g>
+  </g>
+  <text x="380" y="330" fill="#fff" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="96" font-weight="700">Subtitle OCR</text>
+  <text x="384" y="392" fill="#aa5cc3" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="42" font-weight="500">Jellyfin Plugin</text>
+  <text x="152" y="522" fill="#b8bcc8" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="33">OCR image-based DVD and Blu-ray subtitles to SRT</text>
+  <rect width="976" height="6" x="152" y="556" fill="url(#b)" opacity=".55" rx="3"/>
+</svg>

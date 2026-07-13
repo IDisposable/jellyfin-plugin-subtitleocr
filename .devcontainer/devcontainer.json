@@ -1,0 +1,28 @@
+{
+    "name": "jellyfin-plugin-subtitleocr",
+    "image": "mcr.microsoft.com/devcontainers/dotnet:10.0-noble",
+    "mounts": [
+        "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude-host,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,consistency=cached"
+    ],
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "anthropic.claude-code",
+                "ms-dotnettools.csharp",
+                "editorconfig.editorconfig",
+                "github.vscode-github-actions",
+                "ms-dotnettools.csdevkit"
+            ]
+        }
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/github-cli:1": {},
+        "ghcr.io/eitsupi/devcontainer-features/jq-likes:2": {}
+    },
+    "hostRequirements": {
+        "memory": "8gb",
+        "cpus": 4
+    }
+}

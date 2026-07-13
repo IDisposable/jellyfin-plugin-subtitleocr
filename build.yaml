@@ -1,0 +1,21 @@
+---
+name: "Subtitle OCR"
+guid: "b7a9c2e4-5d31-4f8a-9c06-3e2d1a8b4f70"
+version: "10.11.0.1"
+targetAbi: "10.11.0.0"
+framework: "net9.0"
+overview: "OCR image-based DVD and Blu-ray subtitles to SRT"
+description: >
+  Converts embedded image-based subtitle tracks (VobSub/DVD and PGS/Blu-ray) to
+  external SRT files using nOCR pattern matching. Pure managed code: no Tesseract
+  and no native dependencies. The .nocr database format is interchange-compatible
+  with Subtitle Edit, so databases trained or corrected in its GUI drop straight in.
+  A scheduled task scans your Movie and Episode libraries and writes an SRT beside
+  each image-based track.
+category: "Subtitles"
+owner: "IDisposable"
+artifacts:
+  - "Jellyfin.Plugin.SubtitleOcr.dll"
+  - "SubtitleOcr.Core.dll"
+changelog: >
+  Initial beta release.

@@ -1,0 +1,173 @@
+# Build/test on every push & PR; on a published Release, also package and publish to the catalog.
+# One matrix row per Jellyfin ABI — add more rows when new Jellyfin NuGet versions are shipped.
+# Two channels: a stable Release (revision .0) updates manifest.json (stable) and manifest-beta.json
+# (beta); a GitHub pre-release (revision >= .1) updates only manifest-beta.json.
+name: build
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore: [ '**/*.md' ]
+  pull_request:
+    branches: [ main ]
+    paths-ignore: [ '**/*.md' ]
+  release:
+    types: [ published ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Version comes from build.yaml (the single source). An empty plugin-version uses it verbatim;
+          # an abi-base derives <abi-base>.<build.yaml trailing fields> so other ABIs auto-stay in lockstep
+          # (build.yaml 10.11.0.3 -> 12.0.0.3). A non-empty plugin-version overrides. plugin-version and
+          # abi-base are declared empty here (not just omitted) so the matrix context type includes them and
+          # the "Resolve version" step's matrix['plugin-version'] / matrix['abi-base'] do not warn.
+          - { abi: "10.11", framework: net9.0, dotnet: "9.0.x", jellyfin: "10.11.11", targetabi: "10.11.0.0", plugin-version: "", abi-base: "" }
+          # Enable 12.x by uncommenting (set jellyfin to the real published version):
+          # - { abi: "12.x", framework: net10.0, dotnet: "10.0.x", jellyfin: "12.0.0", plugin-version: "", abi-base: "12.0", targetabi: "12.0.0.0" }
+    name: build (${{ matrix.abi }})
+    steps:
+      - uses: actions/checkout@v7
+
+      # Catch the "tagged before bumping build.yaml" slip: on a release, the tag (minus the leading v)
+      # must equal build.yaml's version (the single source). Fails fast, before any build work.
+      - name: Guard - release tag matches build.yaml version
+        if: github.event_name == 'release'
+        run: |
+          base_ver=$(grep -m1 '^version:' build.yaml | cut -d'"' -f2)
+          tag="${{ github.event.release.tag_name }}"
+          tag="${tag#v}"
+          if [ "$tag" != "$base_ver" ]; then
+            echo "::error::Release tag v$tag does not match build.yaml version $base_ver. Bump build.yaml (and commit) before tagging."
+            exit 1
+          fi
+          echo "Tag matches build.yaml version: $base_ver"
+
+      # Enforce the channel/version convention so the two channels stay strictly ordered (a stable always
+      # supersedes the betas before it): a stable Release must be a .0 revision; a GitHub pre-release must be
+      # a non-zero revision (a beta toward the next stable .0).
+      - name: Guard - version revision matches release channel
+        if: github.event_name == 'release'
+        run: |
+          base_ver=$(grep -m1 '^version:' build.yaml | cut -d'"' -f2)
+          rev=$(echo "$base_ver" | cut -d. -f4)
+          if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+            if [ "$rev" = "0" ]; then
+              echo "::error::Pre-release $base_ver ends in .0; a beta must use a non-zero revision (e.g. 10.11.1.1) toward the next stable .0."
+              exit 1
+            fi
+            echo "Pre-release revision ok: $base_ver"
+          else
+            if [ "$rev" != "0" ]; then
+              echo "::error::Stable release $base_ver ends in .$rev; a stable release must be a .0 revision. Mark it as a GitHub pre-release, or bump to a .0 version."
+              exit 1
+            fi
+            echo "Stable revision ok: $base_ver"
+          fi
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: ${{ matrix.dotnet }}
+
+      # Version source of truth is build.yaml. A row may override with plugin-version, or set abi-base
+      # to derive <abi-base>.<build.yaml trailing fields> (keeps non-10.11 ABIs in lockstep). Default:
+      # build.yaml verbatim.
+      - name: Resolve version
+        id: ver
+        run: |
+          base_ver=$(grep -m1 '^version:' build.yaml | cut -d'"' -f2)
+          v="${{ matrix['plugin-version'] }}"
+          if [ -z "$v" ]; then
+            abi="${{ matrix['abi-base'] }}"
+            if [ -z "$abi" ]; then v="$base_ver"; else v="$abi.$(echo "$base_ver" | cut -d. -f3-)"; fi
+          fi
+          echo "value=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: >
+          dotnet build Jellyfin.Plugin.SubtitleOcr/Jellyfin.Plugin.SubtitleOcr.csproj
+          -c Release -p:TargetFramework=${{ matrix.framework }}
+          -p:JellyfinVersion=${{ matrix.jellyfin }} -p:Version=${{ steps.ver.outputs.value }}
+
+      - name: Test
+        run: >
+          dotnet test Jellyfin.Plugin.SubtitleOcr.sln
+          -c Release -p:TargetFramework=${{ matrix.framework }}
+          -p:JellyfinVersion=${{ matrix.jellyfin }} -p:Version=${{ steps.ver.outputs.value }}
+
+      - name: Package
+        if: github.event_name == 'release'
+        env:
+          # Feed the per-ABI versions to the build jprm runs (MSBuild reads env vars as properties).
+          JellyfinVersion: ${{ matrix.jellyfin }}
+          Version: ${{ steps.ver.outputs.value }}
+        run: |
+          pipx install jprm
+          # build.yaml is the plugin manifest jprm reads; set its per-ABI fields from the matrix row.
+          sed -i \
+            -e "s|^version:.*|version: \"${{ steps.ver.outputs.value }}\"|" \
+            -e "s|^targetAbi:.*|targetAbi: \"${{ matrix.targetabi }}\"|" \
+            -e "s|^framework:.*|framework: \"${{ matrix.framework }}\"|" \
+            build.yaml
+          mkdir -p ./artifacts
+          jprm plugin build "." --output=./artifacts
+
+      - name: Upload package
+        if: github.event_name == 'release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pkg-${{ matrix.abi }}
+          path: artifacts/*.zip
+
+  # Fan-in: one job attaches every ABI's zip and writes a single manifest commit (avoids push races).
+  publish:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Attach zips and update manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          pipx install jprm
+
+          # Ensure repo manifests exist
+          [ -f ./manifest-beta.json ] || jprm repo init ./manifest-beta.json
+          [ -f ./manifest.json ] || jprm repo init ./manifest.json
+
+          for zip in artifacts/*.zip; do
+            url="https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/$(basename "$zip")"
+            gh release upload "${{ github.event.release.tag_name }}" "$zip" --clobber
+            # The beta channel gets every release; the stable channel gets only non-prereleases.
+            jprm repo add --plugin-url "$url" ./manifest-beta.json "$zip"
+            if [ "$PRERELEASE" != "true" ]; then
+              jprm repo add --plugin-url "$url" ./manifest.json "$zip"
+            fi
+          done
+
+      - name: Commit manifests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.json manifest-beta.json
+          git diff --cached --quiet || git commit -m "Publish manifests for ${{ github.event.release.tag_name }}"
+          git push

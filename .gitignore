@@ -1,0 +1,10 @@
+bin/
+obj/
+*.user
+.vs/
+.devcontainer/devcontainer-lock.json
+dotnet/runfile-discovery/
+.claude/worktrees/
+.claude/projects/
+.claude/settings.local.json
+CLAUDE.md

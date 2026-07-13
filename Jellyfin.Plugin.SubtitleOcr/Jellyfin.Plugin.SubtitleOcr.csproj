@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Jellyfin.Plugin.SubtitleOcr</RootNamespace>
+    <!-- Plugin version flows from build.yaml via the CI -p:Version; default keeps local builds versioned.
+         AssemblyVersion/FileVersion derive from Version, so both track the single source. -->
+    <Version Condition="'$(Version)' == ''">0.1.0.0</Version>
+    <!-- Jellyfin ABI flows from the CI -p:JellyfinVersion (matrix row); default pairs with TargetFramework above. -->
+    <JellyfinVersion Condition="'$(JellyfinVersion)' == ''">10.11.11</JellyfinVersion>
+    <!-- Plugin dlls plus Core must land in the plugin folder together. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- To move to another ABI, set JellyfinVersion and TargetFramework together (e.g. 10.10.7 + net8.0). -->
+    <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../SubtitleOcr.Core/SubtitleOcr.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Configuration/configPage.html" />
+  </ItemGroup>
+
+</Project>

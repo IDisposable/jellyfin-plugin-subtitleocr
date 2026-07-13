@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>SubtitleOcr.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Default nOCR database (MIT, from Subtitle Edit; see NOTICE.md) -->
+    <EmbeddedResource Include="Assets/Latin.nocr" LogicalName="SubtitleOcr.Core.Assets.Latin.nocr" />
+  </ItemGroup>
+
+</Project>
