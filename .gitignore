@@ -8,3 +8,5 @@ dotnet/runfile-discovery/
 .claude/projects/
 .claude/settings.local.json
 CLAUDE.md
+
+temp/

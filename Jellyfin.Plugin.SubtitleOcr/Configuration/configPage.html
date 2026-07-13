@@ -8,6 +8,12 @@
     <div data-role="content">
         <div class="content-primary">
             <form id="SubtitleOcrConfigForm">
+                <div style="margin-bottom:1.5em;">
+                    <button id="ViewExtractions" is="emby-button" type="button" class="raised block emby-button">
+                        <span>View extracted subtitle files</span>
+                    </button>
+                </div>
+
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="NOcrDatabasePath">nOCR database path</label>
                     <input id="NOcrDatabasePath" name="NOcrDatabasePath" type="text" is="emby-input" />
@@ -40,8 +46,30 @@
                 </div>
 
                 <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="Languages">Only extract these languages</label>
+                    <input id="Languages" name="Languages" type="text" is="emby-input" />
+                    <div class="fieldDescription">
+                        Comma-separated ISO 639 codes (e.g. <code>eng, und</code>). Leave blank to extract every
+                        image-based subtitle language. Use <code>und</code> for untagged tracks.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="SpaceMinGap">Minimum gap for word space (px)</label>
                     <input id="SpaceMinGap" name="SpaceMinGap" type="number" is="emby-input" min="1" max="50" />
+                    <div class="fieldDescription">
+                        Absolute floor for the word-space gap. The effective threshold is the larger of this and
+                        the factor below times the subtitle line height.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="SpaceGapFactor">Word-space gap factor (fraction of line height)</label>
+                    <input id="SpaceGapFactor" name="SpaceGapFactor" type="number" is="emby-input" min="0" max="1" step="0.01" />
+                    <div class="fieldDescription">
+                        Scales the word-space threshold with subtitle resolution. 0.30 suits most discs; lower it if
+                        words run together, raise it if single words split apart.
+                    </div>
                 </div>
 
                 <div class="inputContainer">
@@ -54,9 +82,29 @@
                     <input id="MaxUnknownRatio" name="MaxUnknownRatio" type="number" is="emby-input" min="0" max="1" step="0.05" />
                 </div>
 
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="MaxDroppedRatio">Max dropped-event ratio before discarding the track</label>
+                    <input id="MaxDroppedRatio" name="MaxDroppedRatio" type="number" is="emby-input" min="0" max="1" step="0.05" />
+                    <div class="fieldDescription">
+                        If more than this fraction of a track's events are dropped, no SRT is written and any stale
+                        one is deleted. The track OCR'd too poorly (usually a wrong or untrained database).
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="SubtitleTitleTag">Generated subtitle tag</label>
+                    <input id="SubtitleTitleTag" name="SubtitleTitleTag" type="text" is="emby-input" />
+                    <div class="fieldDescription">
+                        Inserted into generated file names (<code>{name}.{lang}.{tag}.srt</code>) and shown as the
+                        subtitle title in Jellyfin, marking the file as plugin-created. The plugin only overwrites or
+                        deletes files carrying this tag, so it never touches source or hand-made subtitles. Blank
+                        writes <code>{name}.{lang}.srt</code> and gives up that protection.
+                    </div>
+                </div>
+
                 <label class="checkboxContainer">
                     <input id="OverwriteExisting" name="OverwriteExisting" type="checkbox" is="emby-checkbox" />
-                    <span>Overwrite existing SRT files</span>
+                    <span>Overwrite existing SRT files (only files with the tag above)</span>
                 </label>
 
                 <label class="checkboxContainer">
@@ -79,6 +127,20 @@
                     <span>Skip image tracks whose language already has a text subtitle</span>
                 </label>
 
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="RescanIntervalDays">Rescan interval (days)</label>
+                    <input id="RescanIntervalDays" name="RescanIntervalDays" type="number" is="emby-input" min="0" max="3650" />
+                    <div class="fieldDescription">
+                        An unchanged file already probed within this many days is skipped. A changed file is always
+                        re-probed. Set to 0 to re-probe only files that changed.
+                    </div>
+                </div>
+
+                <label class="checkboxContainer">
+                    <input id="ForceRescan" name="ForceRescan" type="checkbox" is="emby-checkbox" />
+                    <span>Force a full rescan on the next run (ignores the cache; clears itself afterward)</span>
+                </label>
+
                 <div>
                     <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                         <span>Save</span>
@@ -87,10 +149,66 @@
             </form>
         </div>
     </div>
+
+    <div id="ExtractionsModal" class="hide" style="position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; display:flex;">
+        <div style="background:#101418; color:#fff; width:min(960px,94vw); max-height:86vh; display:flex; flex-direction:column; border-radius:6px; overflow:hidden; box-shadow:0 8px 40px rgba(0,0,0,0.6);">
+            <div style="display:flex; align-items:center; gap:0.5em; padding:0.75em 1em; border-bottom:1px solid #2a2f35;">
+                <h3 style="margin:0; flex:1;">Extracted subtitle files</h3>
+                <button id="RefreshExtractions" is="emby-button" type="button" class="emby-button"><span>Refresh</span></button>
+                <button id="ClearExtractions" is="emby-button" type="button" class="emby-button"><span>Clear</span></button>
+                <button id="CloseExtractions" is="emby-button" type="button" class="emby-button"><span>Close</span></button>
+            </div>
+            <div id="ExtractionsBody" style="overflow:auto; padding:0.75em 1em;"></div>
+        </div>
+    </div>
+
     <script type="text/javascript">
         var SubtitleOcrConfig = {
             pluginUniqueId: 'b7a9c2e4-5d31-4f8a-9c06-3e2d1a8b4f70'
         };
+
+        function socTicksToDate(t) { return new Date((t - 621355968000000000) / 10000); }
+        function socBasename(p) { var i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')); return i >= 0 ? p.substring(i + 1) : p; }
+        function socEscape(s) {
+            return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
+        }
+
+        function socRenderExtractions(records) {
+            var body = document.querySelector('#ExtractionsBody');
+            if (!records || !records.length) {
+                body.innerHTML = '<p>No subtitle files have been extracted yet.</p>';
+                return;
+            }
+            var base = ApiClient.serverAddress() || '';
+            var sid = ApiClient.serverId();
+            var rows = records.map(function (r) {
+                var link = base + '/web/#/details?id=' + r.ItemId + '&serverId=' + sid;
+                var when = socTicksToDate(r.WhenTicks).toLocaleString();
+                return '<tr>'
+                    + '<td style="white-space:nowrap; padding:0.25em 0.75em 0.25em 0;">' + socEscape(when) + '</td>'
+                    + '<td style="padding:0.25em 0.75em 0.25em 0;"><a href="' + socEscape(link) + '" target="_blank" rel="noopener">' + socEscape(r.ItemName || '(unknown)') + '</a></td>'
+                    + '<td style="padding:0.25em 0.75em 0.25em 0;">' + socEscape(r.Language) + '</td>'
+                    + '<td style="padding:0.25em 0.75em 0.25em 0; text-align:right;">' + r.Events + '</td>'
+                    + '<td style="padding:0.25em 0; opacity:0.85;" title="' + socEscape(r.SrtPath) + '">' + socEscape(socBasename(r.SrtPath)) + '</td>'
+                    + '</tr>';
+            }).join('');
+            body.innerHTML = '<div style="opacity:0.7; margin-bottom:0.5em;">' + records.length + ' file(s), newest first.</div>'
+                + '<table style="width:100%; border-collapse:collapse; font-size:0.9em;">'
+                + '<thead><tr style="text-align:left; border-bottom:1px solid #3a4048;">'
+                + '<th style="padding-right:0.75em;">When</th><th style="padding-right:0.75em;">Item</th>'
+                + '<th style="padding-right:0.75em;">Lang</th><th style="padding-right:0.75em; text-align:right;">Events</th><th>File</th>'
+                + '</tr></thead><tbody>' + rows + '</tbody></table>';
+        }
+
+        function socLoadExtractions() {
+            var body = document.querySelector('#ExtractionsBody');
+            body.innerHTML = '<p>Loading...</p>';
+            ApiClient.getJSON(ApiClient.getUrl('Plugins/SubtitleOcr/Extractions')).then(socRenderExtractions, function () {
+                body.innerHTML = '<p>Failed to load the extraction log.</p>';
+            });
+        }
 
         function addLanguageDatabaseRow(language, path) {
             var row = document.createElement('div');
@@ -128,6 +246,21 @@
         document.querySelector('#AddLanguageDatabase')
             .addEventListener('click', function () { addLanguageDatabaseRow('', ''); });
 
+        document.querySelector('#ViewExtractions').addEventListener('click', function () {
+            document.querySelector('#ExtractionsModal').classList.remove('hide');
+            socLoadExtractions();
+        });
+        document.querySelector('#CloseExtractions').addEventListener('click', function () {
+            document.querySelector('#ExtractionsModal').classList.add('hide');
+        });
+        document.querySelector('#ExtractionsModal').addEventListener('click', function (e) {
+            if (e.target === this) { this.classList.add('hide'); }
+        });
+        document.querySelector('#RefreshExtractions').addEventListener('click', socLoadExtractions);
+        document.querySelector('#ClearExtractions').addEventListener('click', function () {
+            ApiClient.ajax({ type: 'DELETE', url: ApiClient.getUrl('Plugins/SubtitleOcr/Extractions') }).then(socLoadExtractions);
+        });
+
         document.querySelector('#SubtitleOcrConfigPage')
             .addEventListener('pageshow', function () {
                 Dashboard.showLoadingMsg();
@@ -139,14 +272,20 @@
                         addLanguageDatabaseRow(entry.Language, entry.Path);
                     });
                     document.querySelector('#UnknownCharacter').value = config.UnknownCharacter || '*';
+                    document.querySelector('#Languages').value = (config.Languages || []).join(', ');
                     document.querySelector('#SpaceMinGap').value = config.SpaceMinGap;
+                    document.querySelector('#SpaceGapFactor').value = config.SpaceGapFactor;
                     document.querySelector('#MaxWrongPixels').value = config.MaxWrongPixels;
                     document.querySelector('#MaxUnknownRatio').value = config.MaxUnknownRatio;
+                    document.querySelector('#MaxDroppedRatio').value = config.MaxDroppedRatio;
+                    document.querySelector('#SubtitleTitleTag').value = config.SubtitleTitleTag || '';
                     document.querySelector('#OverwriteExisting').checked = config.OverwriteExisting;
                     document.querySelector('#DeepSeek').checked = config.DeepSeek;
                     document.querySelector('#InvertLuma').checked = config.InvertLuma;
                     document.querySelector('#SkipForcedOnly').checked = config.SkipForcedOnly;
                     document.querySelector('#SkipLanguagesWithTextSubtitle').checked = config.SkipLanguagesWithTextSubtitle;
+                    document.querySelector('#RescanIntervalDays').value = config.RescanIntervalDays;
+                    document.querySelector('#ForceRescan').checked = config.ForceRescan;
                     Dashboard.hideLoadingMsg();
                 });
             });
@@ -165,14 +304,21 @@
                             };
                         }).filter(function (entry) { return entry.Language && entry.Path; });
                     config.UnknownCharacter = document.querySelector('#UnknownCharacter').value;
+                    config.Languages = document.querySelector('#Languages').value
+                        .split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s; });
                     config.SpaceMinGap = parseInt(document.querySelector('#SpaceMinGap').value, 10);
+                    config.SpaceGapFactor = parseFloat(document.querySelector('#SpaceGapFactor').value);
                     config.MaxWrongPixels = parseInt(document.querySelector('#MaxWrongPixels').value, 10);
                     config.MaxUnknownRatio = parseFloat(document.querySelector('#MaxUnknownRatio').value);
+                    config.MaxDroppedRatio = parseFloat(document.querySelector('#MaxDroppedRatio').value);
+                    config.SubtitleTitleTag = document.querySelector('#SubtitleTitleTag').value.trim();
                     config.OverwriteExisting = document.querySelector('#OverwriteExisting').checked;
                     config.DeepSeek = document.querySelector('#DeepSeek').checked;
                     config.InvertLuma = document.querySelector('#InvertLuma').checked;
                     config.SkipForcedOnly = document.querySelector('#SkipForcedOnly').checked;
                     config.SkipLanguagesWithTextSubtitle = document.querySelector('#SkipLanguagesWithTextSubtitle').checked;
+                    config.RescanIntervalDays = parseInt(document.querySelector('#RescanIntervalDays').value, 10);
+                    config.ForceRescan = document.querySelector('#ForceRescan').checked;
                     ApiClient.updatePluginConfiguration(SubtitleOcrConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });

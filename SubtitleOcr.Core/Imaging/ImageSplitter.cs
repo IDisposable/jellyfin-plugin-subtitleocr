@@ -14,6 +14,9 @@ public sealed class SplitterItem
     /// <summary>Pixel gap to the previous glyph on the same line; -1 for the first glyph.</summary>
     public int GapBefore { get; init; }
 
+    /// <summary>Height (px) of the text line band this glyph belongs to; scales the word-space threshold.</summary>
+    public int LineHeight { get; init; }
+
     public bool NewLine { get; init; }
 }
 
@@ -56,6 +59,7 @@ public static class ImageSplitter
                     X = glyphLeft,
                     TopMargin = top - lineTop,
                     GapBefore = first ? -1 : glyphLeft - previousRight - 1,
+                    LineHeight = lineBottom - lineTop + 1,
                     NewLine = first,
                 });
 

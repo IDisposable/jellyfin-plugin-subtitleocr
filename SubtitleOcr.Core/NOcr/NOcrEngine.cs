@@ -5,8 +5,13 @@ namespace SubtitleOcr.Core.NOcr;
 
 public sealed class NOcrEngineOptions
 {
-    /// <summary>Inter-glyph gap (px) treated as a word space; scaled DVD subs sit around 5-8.</summary>
+    /// <summary>Absolute floor (px) for the word-space gap. The effective threshold is the larger of this
+    /// and <see cref="SpaceGapFactor"/> times the text line height.</summary>
     public int SpaceMinGap { get; init; } = 6;
+
+    /// <summary>Word-space gap as a fraction of the text line height, so the threshold scales with subtitle
+    /// resolution (a fixed pixel gap splits large Blu-ray text between every letter).</summary>
+    public double SpaceGapFactor { get; init; } = 0.30;
 
     /// <summary>Errors tolerated per glyph in loose cascade passes.</summary>
     public int MaxWrongPixels { get; init; } = 25;
@@ -54,7 +59,7 @@ public sealed class NOcrEngine
                 CloseItalic(sb, ref inItalic);
                 sb.Append('\n');
             }
-            else if (item.GapBefore >= _options.SpaceMinGap)
+            else if (item.GapBefore >= Math.Max(_options.SpaceMinGap, (int)Math.Round(_options.SpaceGapFactor * item.LineHeight)))
             {
                 sb.Append(' ');
             }

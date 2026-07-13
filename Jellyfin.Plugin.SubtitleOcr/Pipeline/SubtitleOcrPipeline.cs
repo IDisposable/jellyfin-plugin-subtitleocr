@@ -34,13 +34,13 @@ public class SubtitleOcrPipeline
     /// is set, image streams whose language appears in <paramref name="textSubtitleLanguages"/> (the raw
     /// language codes of the item's existing text-based subtitles) are skipped.
     /// </summary>
-    public async Task<int> ProcessAsync(string mediaPath, string ffprobePath, PluginConfiguration config, string? nOcrFolder, IReadOnlySet<string>? textSubtitleLanguages, IProgress<double>? progress, CancellationToken cancellationToken)
+    public async Task<SubtitleOcrResult> ProcessAsync(string mediaPath, string ffprobePath, PluginConfiguration config, string? nOcrFolder, IReadOnlySet<string>? textSubtitleLanguages, IProgress<double>? progress, CancellationToken cancellationToken)
     {
         var reader = new FfprobeSubtitleReader(ffprobePath);
         var streams = await reader.GetImageSubtitleStreamsAsync(mediaPath, cancellationToken).ConfigureAwait(false);
         if (streams.Count == 0)
         {
-            return 0;
+            return new SubtitleOcrResult(Array.Empty<WrittenSubtitle>(), streams);
         }
 
         // Normalize the existing text-subtitle languages once so per-stream lookups align with the
@@ -50,15 +50,23 @@ public class SubtitleOcrPipeline
             ? textSubtitleLanguages.Select(LanguageCodes.Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : FrozenSet<string>.Empty;
 
+        // Optional allowlist: OCR only the selected languages (normalized). Null when empty (extract all).
+        IReadOnlySet<string>? allowedLanguages = config.Languages is { Length: > 0 }
+            ? config.Languages.Select(LanguageCodes.Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : null;
+
         var options = new NOcrEngineOptions
         {
             SpaceMinGap = config.SpaceMinGap,
+            SpaceGapFactor = config.SpaceGapFactor,
             MaxWrongPixels = config.MaxWrongPixels,
             DeepSeek = config.DeepSeek,
             UnknownCharacter = config.UnknownCharacter,
         };
 
-        var written = 0;
+        var titleTag = SanitizeTag(config.SubtitleTitleTag);
+
+        var writtenSubtitles = new List<WrittenSubtitle>();
 
         // Count streams per language so a language with several tracks keeps the source stream number
         // in each file name (nothing overwrites); a lone track gets the clean {base}.{lang}.srt.
@@ -78,6 +86,12 @@ public class SubtitleOcrPipeline
             var language = string.IsNullOrEmpty(stream.Language) ? LanguageCodes.Undetermined : stream.Language;
             var normalizedLanguage = LanguageCodes.Normalize(language);
 
+            if (allowedLanguages is not null && !allowedLanguages.Contains(normalizedLanguage))
+            {
+                _logger.LogDebug("Language {Language} not selected, skipping image stream {Index}", normalizedLanguage, stream.StreamIndex);
+                continue;
+            }
+
             // Skip only on a confident language match: an untagged image track (undetermined) could be a
             // different language than any existing text subtitle, so convert it rather than risk a gap.
             if (!string.IsNullOrEmpty(normalizedLanguage) &&
@@ -89,7 +103,7 @@ public class SubtitleOcrPipeline
                 continue;
             }
 
-            var srtFilePath = BuildSrtFilePath(mediaPath, language, stream.StreamIndex, languageCounts[language] > 1);
+            var srtFilePath = BuildSrtFilePath(mediaPath, language, titleTag, stream.StreamIndex, languageCounts[language] > 1);
             if (File.Exists(srtFilePath) && !config.OverwriteExisting)
             {
                 _logger.LogDebug("SRT file exists, skipping: {Path}", srtFilePath);
@@ -152,10 +166,24 @@ public class SubtitleOcrPipeline
                 continue;
             }
 
+            var totalEvents = events.Count + dropped;
+            if (dropped > totalEvents * config.MaxDroppedRatio)
+            {
+                _logger.LogWarning(
+                    "Stream {Index} of {Path}: {Dropped} of {Total} events dropped (over {Ratio:P0}); discarding SRT",
+                    stream.StreamIndex, mediaPath, dropped, totalEvents, config.MaxDroppedRatio);
+                if (File.Exists(srtFilePath))
+                {
+                    File.Delete(srtFilePath);
+                }
+
+                continue;
+            }
+
             events.Sort((a, b) => a.Start.CompareTo(b.Start));
             SrtWriter.NormalizeTimings(events);
             await File.WriteAllTextAsync(srtFilePath, SrtWriter.Serialize(events), cancellationToken).ConfigureAwait(false);
-            written++;
+            writtenSubtitles.Add(new WrittenSubtitle(srtFilePath, normalizedLanguage, events.Count));
 
             _logger.LogInformation(
                 "Wrote {Count} events ({Dropped} dropped) to {Path}",
@@ -163,7 +191,7 @@ public class SubtitleOcrPipeline
         }
 
         progress?.Report(1.0);
-        return written;
+        return new SubtitleOcrResult(writtenSubtitles, streams);
     }
 
     /// <summary>
@@ -218,16 +246,39 @@ public class SubtitleOcrPipeline
         Path.IsPathRooted(path) || nOcrFolder is null ? path : Path.Combine(nOcrFolder, path);
 
     /// <summary>
-    /// A language with a single track gets {base}.{lang}.srt; when several tracks share a language each
-    /// keeps its source stream index ({base}.{lang}.{index}.srt), so all are written and Jellyfin still
-    /// attaches them as external subtitles for that language.
+    /// A single track gets {base}.{lang}.{tag}.srt; several tracks sharing a language each keep their source
+    /// stream index ({base}.{lang}.{tag}.{index}.srt). The tag (empty to omit) marks the file as plugin-created
+    /// so overwrite and discard only ever touch our own output. Jellyfin reads it as the subtitle title.
     /// </summary>
-    private static string BuildSrtFilePath(string mediaPath, string language, int streamIndex, bool includeStreamIndex)
+    private static string BuildSrtFilePath(string mediaPath, string language, string tag, int streamIndex, bool includeStreamIndex)
     {
         var directory = Path.GetDirectoryName(mediaPath) ?? string.Empty;
         var baseName = Path.GetFileNameWithoutExtension(mediaPath);
+        var tagPart = tag.Length == 0 ? string.Empty : $".{tag}";
         return includeStreamIndex
-            ? Path.Combine(directory, $"{baseName}.{language}.{streamIndex}.srt")
-            : Path.Combine(directory, $"{baseName}.{language}.srt");
+            ? Path.Combine(directory, $"{baseName}.{language}{tagPart}.{streamIndex}.srt")
+            : Path.Combine(directory, $"{baseName}.{language}{tagPart}.srt");
+    }
+
+    /// <summary>Strips dots and path-invalid characters so the tag stays a single, safe file-name segment.</summary>
+    private static string SanitizeTag(string? tag)
+    {
+        if (string.IsNullOrWhiteSpace(tag))
+        {
+            return string.Empty;
+        }
+
+        var invalid = Path.GetInvalidFileNameChars();
+        return new string(tag.Where(c => c != '.' && !invalid.Contains(c)).ToArray()).Trim();
     }
 }
+
+/// <summary>Outcome of processing one media file: the SRT files written and the image-based subtitle
+/// streams ffprobe found (present regardless of whether each was written, skipped, or empty).</summary>
+public sealed record SubtitleOcrResult(IReadOnlyList<WrittenSubtitle> WrittenSubtitles, IReadOnlyList<ImageSubtitleStream> ImageStreams)
+{
+    public int SrtFilesWritten => WrittenSubtitles.Count;
+}
+
+/// <summary>One SRT the pipeline wrote: its path, language, and event count.</summary>
+public sealed record WrittenSubtitle(string Path, string Language, int Events);

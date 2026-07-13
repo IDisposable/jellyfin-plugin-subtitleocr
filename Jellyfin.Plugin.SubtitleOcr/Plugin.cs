@@ -25,6 +25,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     public string NOcrDatabaseFolder { get; }
 
+    /// <summary>Per-file probe cache backing <see cref="ScheduledTasks.OcrSubtitlesTask"/>.</summary>
+    public string ScanStatePath => Path.Combine(DataFolderPath, "scan-state.json");
+
+    /// <summary>Log of written SRT files shown on the config page.</summary>
+    public string ExtractionLogPath => Path.Combine(DataFolderPath, "extractions.json");
+
     public override string Name => "Subtitle OCR";
 
     public override string Description =>

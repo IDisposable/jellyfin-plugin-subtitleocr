@@ -19,6 +19,8 @@
   <ItemGroup>
     <!-- To move to another ABI, set JellyfinVersion and TargetFramework together (e.g. 10.10.7 + net8.0). -->
     <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinVersion)" />
+    <!-- Shared framework (runtime-provided, not packaged) for the extraction-log API controller. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
