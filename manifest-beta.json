@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/IDisposable/jellyfin-plugin-subtitleocr/main/assets/social.png",
         "versions": [
             {
+                "version": "10.11.1.0",
+                "changelog": "Initial production release. OCRs embedded image-based subtitles (VobSub/DVD and PGS/Blu-ray) to SRT files using nOCR pattern matching, with Subtitle Edit-compatible .nocr databases. Pure managed code: no Tesseract, no native dependencies. Optionally skips image tracks whose language already has a text subtitle.\n",
+                "targetAbi": "10.11.0.0",
+                "sourceUrl": "https://github.com/IDisposable/jellyfin-plugin-subtitleocr/releases/download/v10.11.1.0/subtitle-ocr_10.11.1.0.zip",
+                "checksum": "2dbc80e340e0f0c7dc9ecc933138379c",
+                "timestamp": "2026-07-13T19:33:12Z"
+            },
+            {
                 "version": "10.11.0.1",
                 "changelog": "Initial beta release.\n",
                 "targetAbi": "10.11.0.0",
