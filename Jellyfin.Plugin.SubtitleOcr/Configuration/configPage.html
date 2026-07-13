@@ -151,12 +151,18 @@
     </div>
 
     <div id="ExtractionsModal" class="hide" style="position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; display:flex;">
+        <style>
+            #ExtractionsModal .soc-btn { background:#33393f; color:#fff; border:1px solid #4a525a; border-radius:4px; padding:0.45em 1.1em; cursor:pointer; font-size:0.9em; }
+            #ExtractionsModal .soc-btn:hover { background:#414951; }
+            #ExtractionsModal a { color:#57b6ff; text-decoration:none; }
+            #ExtractionsModal a:hover { text-decoration:underline; }
+        </style>
         <div style="background:#101418; color:#fff; width:min(960px,94vw); max-height:86vh; display:flex; flex-direction:column; border-radius:6px; overflow:hidden; box-shadow:0 8px 40px rgba(0,0,0,0.6);">
             <div style="display:flex; align-items:center; gap:0.5em; padding:0.75em 1em; border-bottom:1px solid #2a2f35;">
                 <h3 style="margin:0; flex:1;">Extracted subtitle files</h3>
-                <button id="RefreshExtractions" is="emby-button" type="button" class="emby-button"><span>Refresh</span></button>
-                <button id="ClearExtractions" is="emby-button" type="button" class="emby-button"><span>Clear</span></button>
-                <button id="CloseExtractions" is="emby-button" type="button" class="emby-button"><span>Close</span></button>
+                <button id="RefreshExtractions" type="button" class="soc-btn">Refresh</button>
+                <button id="ClearExtractions" type="button" class="soc-btn">Clear</button>
+                <button id="CloseExtractions" type="button" class="soc-btn">Close</button>
             </div>
             <div id="ExtractionsBody" style="overflow:auto; padding:0.75em 1em;"></div>
         </div>
