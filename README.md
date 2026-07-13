@@ -9,11 +9,50 @@ using nOCR pattern matching — no Tesseract, no native dependencies, pure manag
 Database format is interchange-compatible with [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit)'s
 `.nocr` files, so databases trained or corrected in SE's GUI drop straight in.
 
-## Status: scaffold
+<p align="center">
+<img alt="Build" src="https://img.shields.io/github/actions/workflow/status/IDisposable/jellyfin-plugin-mindthegaps/build.yaml?branch=main">
+<img alt="License" src="https://img.shields.io/badge/license-MIT-blue">
+<img alt="Jellyfin 10.11" src="https://img.shields.io/badge/Jellyfin-10.11-blueviolet">
+</p>
 
-The core library is implemented and verified (see below). The Jellyfin host layer
-(plugin, scheduled task, config page) is written against the 10.11 API surface but
-has not been run against a live server yet.
+## Installation
+
+### From a Jellyfin repository (recommended)
+
+1. In the Jellyfin dashboard, go to **Plugins > Repositories > +**.
+2. Add a repository with this manifest URL:
+   ```
+   https://raw.githubusercontent.com/IDisposable/jellyfin-plugin-subtitleocr/main/manifest.json
+   ```
+3. Open the **Catalog** tab and find **Subtitle OCR** under the *Subtitles* category.
+4. Click **Install**.
+5. Restart your Jellyfin server.
+
+New releases show up in the catalog automatically.
+
+### Beta channel
+
+For pre-release builds, use this manifest URL instead:
+```
+https://raw.githubusercontent.com/IDisposable/jellyfin-plugin-subtitleocr/main/manifest-beta.json
+```
+
+Both channels publish the same builds; the stable channel carries only stable releases,
+the beta channel carries all releases. Add one repository or the other, not both.
+
+### Manual
+
+Download the `.zip` from the latest [GitHub release](https://github.com/IDisposable/jellyfin-plugin-subtitleocr/releases),
+extract it into a folder under your server's `config/plugins/` directory (e.g.
+`config/plugins/SubtitleOcr/`), and restart Jellyfin.
+
+Your server version must match the plugin's target ABI (currently `10.11.0.0`, `net9.0`).
+
+## Status: Initial beta
+
+The core library is implemented and verified. The Jellyfin host layer (plugin, scheduled
+task, config page) is written against the 10.11 API surface but has not been run against
+a live server yet.
 
 ## Architecture
 
@@ -77,7 +116,7 @@ dotnet publish Jellyfin.Plugin.SubtitleOcr -c Release
 
 Targets Jellyfin 10.11 / net9.0 by default. To build against another ABI without
 editing the csproj, pair the two overrides, e.g.
-`dotnet build -p:JellyfinVersion=10.10.7 -p:TargetFramework=net8.0` (restore separately
+`dotnet build -p:JellyfinVersion=10.10.7 -p:TargetFramework=net9.0` (restore separately
 first when overriding `TargetFramework`).
 
 ## Languages
