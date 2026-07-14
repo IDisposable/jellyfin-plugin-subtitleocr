@@ -44,6 +44,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public override Guid Id => Guid.Parse("b7a9c2e4-5d31-4f8a-9c06-3e2d1a8b4f70");
 
+    /// <summary>Page name of the extraction log, also its dashboard URL (configurationpage?name=...).</summary>
+    public const string ExtractionsPageName = "SubtitleOcrExtractions";
+
     public IEnumerable<PluginPageInfo> GetPages()
     {
         return new[]
@@ -52,6 +55,18 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 Name = Name,
                 EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
+            },
+
+            // In the dashboard menu of its own, so the log is reachable without going through the
+            // plugin's settings. Jellyfin offers no way to add one to the Scheduled Tasks page itself.
+            new PluginPageInfo
+            {
+                Name = ExtractionsPageName,
+                DisplayName = "Extracted Subtitles",
+                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.extractionsPage.html",
+                EnableInMainMenu = true,
+                MenuSection = "server",
+                MenuIcon = "subtitles",
             },
         };
     }

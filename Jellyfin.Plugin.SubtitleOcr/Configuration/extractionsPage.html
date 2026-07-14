@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Extracted Subtitles</title>
+</head>
+<body>
+<div id="SubtitleOcrExtractionsPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button">
+    <div data-role="content">
+        <div class="content-primary">
+            <div style="display:flex; align-items:center; gap:0.5em; margin-bottom:1em;">
+                <h2 style="margin:0; flex:1;">Extracted subtitle files</h2>
+                <button id="ReprocessAll" is="emby-button" type="button" class="raised button-submit emby-button">
+                    <span>Reprocess all</span>
+                </button>
+                <button id="RefreshExtractions" is="emby-button" type="button" class="raised emby-button">
+                    <span>Refresh</span>
+                </button>
+                <button id="ClearExtractions" is="emby-button" type="button" class="raised emby-button">
+                    <span>Clear log</span>
+                </button>
+            </div>
+            <div class="fieldDescription" style="margin-bottom:1em;">
+                Every subtitle file the plugin has written, newest first. Reprocessing re-OCRs each one from its
+                source file with the current settings, replacing it. Clearing only forgets the log; the files stay
+                on disk, but reprocessing will no longer know about them.
+            </div>
+            <div id="ExtractionsBody"></div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var page = document.querySelector('#SubtitleOcrExtractionsPage');
+
+            function ticksToDate(t) { return new Date((t - 621355968000000000) / 10000); }
+            function basename(p) { var i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')); return i >= 0 ? p.substring(i + 1) : p; }
+            function escapeHtml(s) {
+                return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+                });
+            }
+
+            function render(records) {
+                var body = page.querySelector('#ExtractionsBody');
+                if (!records || !records.length) {
+                    body.innerHTML = '<p>No subtitle files have been extracted yet.</p>';
+                    return;
+                }
+
+                var base = ApiClient.serverAddress() || '';
+                var sid = ApiClient.serverId();
+                var rows = records.map(function (r) {
+                    var link = base + '/web/#/details?id=' + r.ItemId + '&serverId=' + sid;
+                    var when = ticksToDate(r.WhenTicks).toLocaleString();
+                    return '<tr>'
+                        + '<td style="white-space:nowrap; padding:0.35em 0.75em 0.35em 0;">' + escapeHtml(when) + '</td>'
+                        + '<td style="padding:0.35em 0.75em 0.35em 0;"><a is="emby-linkbutton" class="button-link" href="' + escapeHtml(link) + '" target="_blank" rel="noopener">' + escapeHtml(r.ItemName || '(unknown)') + '</a></td>'
+                        + '<td style="padding:0.35em 0.75em 0.35em 0;">' + escapeHtml(r.Language) + '</td>'
+                        + '<td style="padding:0.35em 0.75em 0.35em 0; text-align:right;">' + r.Events + '</td>'
+                        + '<td style="padding:0.35em 0; opacity:0.85;" title="' + escapeHtml(r.SrtPath) + '">' + escapeHtml(basename(r.SrtPath)) + '</td>'
+                        + '</tr>';
+                }).join('');
+
+                body.innerHTML = '<div style="opacity:0.7; margin-bottom:0.5em;">' + records.length + ' file(s).</div>'
+                    + '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.9em;">'
+                    + '<thead><tr style="text-align:left; border-bottom:1px solid currentColor;">'
+                    + '<th style="padding-right:0.75em;">When</th><th style="padding-right:0.75em;">Item</th>'
+                    + '<th style="padding-right:0.75em;">Lang</th><th style="padding-right:0.75em; text-align:right;">Events</th><th>File</th>'
+                    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+            }
+
+            function load() {
+                var body = page.querySelector('#ExtractionsBody');
+                body.innerHTML = '<p>Loading...</p>';
+                ApiClient.getJSON(ApiClient.getUrl('Plugins/SubtitleOcr/Extractions')).then(render, function () {
+                    body.innerHTML = '<p>Failed to load the extraction log.</p>';
+                });
+            }
+
+            // Must match ReprocessSubtitlesTask.Key and OcrSubtitlesTask.Key.
+            var REPROCESS_KEY = 'SubtitleOcrReprocess';
+            var OCR_KEY = 'SubtitleOcr';
+
+            function tasks() {
+                return ApiClient.getScheduledTasks().then(function (all) {
+                    return {
+                        reprocess: all.filter(function (t) { return t.Key === REPROCESS_KEY; })[0],
+                        ocr: all.filter(function (t) { return t.Key === OCR_KEY; })[0]
+                    };
+                });
+            }
+
+            function setRunning(running) {
+                var button = page.querySelector('#ReprocessAll');
+                button.disabled = running;
+                button.querySelector('span').innerHTML = running ? 'Reprocessing...' : 'Reprocess all';
+            }
+
+            // Reloads when a run finishes: reprocessing rewrites the records, so the log on screen is stale.
+            function pollState(reloadWhenIdle) {
+                return tasks().then(function (t) {
+                    var running = !!t.reprocess && t.reprocess.State === 'Running';
+                    setRunning(running);
+                    if (running) {
+                        setTimeout(function () { pollState(true); }, 2000);
+                    } else if (reloadWhenIdle) {
+                        load();
+                    }
+                });
+            }
+
+            page.querySelector('#ReprocessAll').addEventListener('click', function () {
+                tasks().then(function (t) {
+                    if (!t.reprocess) {
+                        Dashboard.alert('The "Reprocess extracted subtitles" task was not found.');
+                        return;
+                    }
+
+                    // Only one Subtitle OCR task runs at a time; starting this one now would exit immediately.
+                    if (t.ocr && t.ocr.State === 'Running') {
+                        Dashboard.alert('The OCR task is running. Wait for it to finish, then reprocess.');
+                        return;
+                    }
+
+                    Dashboard.confirm(
+                        'Re-OCR every logged file from its source with the current settings? Each one is replaced, and this can take a long time.',
+                        'Reprocess all',
+                        function (confirmed) {
+                            if (confirmed) {
+                                ApiClient.startScheduledTask(t.reprocess.Id).then(function () {
+                                    setRunning(true);
+                                    setTimeout(function () { pollState(true); }, 1000);
+                                });
+                            }
+                        });
+                });
+            });
+
+            page.querySelector('#RefreshExtractions').addEventListener('click', load);
+            page.querySelector('#ClearExtractions').addEventListener('click', function () {
+                Dashboard.confirm('Forget every logged file? The subtitle files themselves are not deleted.', 'Clear log', function (confirmed) {
+                    if (confirmed) {
+                        ApiClient.ajax({ type: 'DELETE', url: ApiClient.getUrl('Plugins/SubtitleOcr/Extractions') }).then(load);
+                    }
+                });
+            });
+
+            page.addEventListener('pageshow', function () {
+                load();
+                pollState(false);
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>

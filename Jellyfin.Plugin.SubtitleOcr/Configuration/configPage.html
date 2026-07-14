@@ -223,71 +223,10 @@
         </div>
     </div>
 
-    <div id="ExtractionsModal" class="hide" style="position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; display:flex;">
-        <style>
-            #ExtractionsModal .soc-btn { background:#33393f; color:#fff; border:1px solid #4a525a; border-radius:4px; padding:0.45em 1.1em; cursor:pointer; font-size:0.9em; }
-            #ExtractionsModal .soc-btn:hover { background:#414951; }
-            #ExtractionsModal a { color:#57b6ff; text-decoration:none; }
-            #ExtractionsModal a:hover { text-decoration:underline; }
-        </style>
-        <div style="background:#101418; color:#fff; width:min(960px,94vw); max-height:86vh; display:flex; flex-direction:column; border-radius:6px; overflow:hidden; box-shadow:0 8px 40px rgba(0,0,0,0.6);">
-            <div style="display:flex; align-items:center; gap:0.5em; padding:0.75em 1em; border-bottom:1px solid #2a2f35;">
-                <h3 style="margin:0; flex:1;">Extracted subtitle files</h3>
-                <button id="RefreshExtractions" type="button" class="soc-btn">Refresh</button>
-                <button id="ClearExtractions" type="button" class="soc-btn">Clear</button>
-                <button id="CloseExtractions" type="button" class="soc-btn">Close</button>
-            </div>
-            <div id="ExtractionsBody" style="overflow:auto; padding:0.75em 1em;"></div>
-        </div>
-    </div>
-
     <script type="text/javascript">
         var SubtitleOcrConfig = {
             pluginUniqueId: 'b7a9c2e4-5d31-4f8a-9c06-3e2d1a8b4f70'
         };
-
-        function socTicksToDate(t) { return new Date((t - 621355968000000000) / 10000); }
-        function socBasename(p) { var i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')); return i >= 0 ? p.substring(i + 1) : p; }
-        function socEscape(s) {
-            return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) {
-                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-            });
-        }
-
-        function socRenderExtractions(records) {
-            var body = document.querySelector('#ExtractionsBody');
-            if (!records || !records.length) {
-                body.innerHTML = '<p>No subtitle files have been extracted yet.</p>';
-                return;
-            }
-            var base = ApiClient.serverAddress() || '';
-            var sid = ApiClient.serverId();
-            var rows = records.map(function (r) {
-                var link = base + '/web/#/details?id=' + r.ItemId + '&serverId=' + sid;
-                var when = socTicksToDate(r.WhenTicks).toLocaleString();
-                return '<tr>'
-                    + '<td style="white-space:nowrap; padding:0.25em 0.75em 0.25em 0;">' + socEscape(when) + '</td>'
-                    + '<td style="padding:0.25em 0.75em 0.25em 0;"><a href="' + socEscape(link) + '" target="_blank" rel="noopener">' + socEscape(r.ItemName || '(unknown)') + '</a></td>'
-                    + '<td style="padding:0.25em 0.75em 0.25em 0;">' + socEscape(r.Language) + '</td>'
-                    + '<td style="padding:0.25em 0.75em 0.25em 0; text-align:right;">' + r.Events + '</td>'
-                    + '<td style="padding:0.25em 0; opacity:0.85;" title="' + socEscape(r.SrtPath) + '">' + socEscape(socBasename(r.SrtPath)) + '</td>'
-                    + '</tr>';
-            }).join('');
-            body.innerHTML = '<div style="opacity:0.7; margin-bottom:0.5em;">' + records.length + ' file(s), newest first.</div>'
-                + '<table style="width:100%; border-collapse:collapse; font-size:0.9em;">'
-                + '<thead><tr style="text-align:left; border-bottom:1px solid #3a4048;">'
-                + '<th style="padding-right:0.75em;">When</th><th style="padding-right:0.75em;">Item</th>'
-                + '<th style="padding-right:0.75em;">Lang</th><th style="padding-right:0.75em; text-align:right;">Events</th><th>File</th>'
-                + '</tr></thead><tbody>' + rows + '</tbody></table>';
-        }
-
-        function socLoadExtractions() {
-            var body = document.querySelector('#ExtractionsBody');
-            body.innerHTML = '<p>Loading...</p>';
-            ApiClient.getJSON(ApiClient.getUrl('Plugins/SubtitleOcr/Extractions')).then(socRenderExtractions, function () {
-                body.innerHTML = '<p>Failed to load the extraction log.</p>';
-            });
-        }
 
         function addLanguageDatabaseRow(language, path) {
             var row = document.createElement('div');
@@ -326,18 +265,7 @@
             .addEventListener('click', function () { addLanguageDatabaseRow('', ''); });
 
         document.querySelector('#ViewExtractions').addEventListener('click', function () {
-            document.querySelector('#ExtractionsModal').classList.remove('hide');
-            socLoadExtractions();
-        });
-        document.querySelector('#CloseExtractions').addEventListener('click', function () {
-            document.querySelector('#ExtractionsModal').classList.add('hide');
-        });
-        document.querySelector('#ExtractionsModal').addEventListener('click', function (e) {
-            if (e.target === this) { this.classList.add('hide'); }
-        });
-        document.querySelector('#RefreshExtractions').addEventListener('click', socLoadExtractions);
-        document.querySelector('#ClearExtractions').addEventListener('click', function () {
-            ApiClient.ajax({ type: 'DELETE', url: ApiClient.getUrl('Plugins/SubtitleOcr/Extractions') }).then(socLoadExtractions);
+            Dashboard.navigate('configurationpage?name=SubtitleOcrExtractions');
         });
 
         document.querySelector('#SubtitleOcrConfigPage')
