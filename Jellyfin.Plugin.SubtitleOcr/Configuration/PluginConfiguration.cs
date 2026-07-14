@@ -1,6 +1,20 @@
 using MediaBrowser.Model.Plugins;
+using SubtitleOcr.Core.NOcr;
 
 namespace Jellyfin.Plugin.SubtitleOcr.Configuration;
+
+/// <summary>Output subtitle file format.</summary>
+public enum SubtitleOutputFormat
+{
+    /// <summary>SubRip (.srt): maximum compatibility.</summary>
+    Srt,
+
+    /// <summary>Advanced SubStation Alpha (.ass): style control (no source positioning).</summary>
+    Ass,
+
+    /// <summary>Per track: ASS when any cue is positioned away from the bottom, otherwise SRT.</summary>
+    Auto,
+}
 
 /// <summary>Maps one subtitle language to a .nocr database. Serialized as an array (XmlSerializer-friendly, unlike a dictionary).</summary>
 public class LanguageDatabaseEntry
@@ -24,6 +38,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public LanguageDatabaseEntry[] LanguageDatabases { get; set; } = Array.Empty<LanguageDatabaseEntry>();
 
+    /// <summary>Output subtitle format: SubRip (.srt) or Advanced SubStation Alpha (.ass).</summary>
+    public SubtitleOutputFormat OutputFormat { get; set; } = SubtitleOutputFormat.Srt;
+
     /// <summary>Skips items whose target SRT file already exists.</summary>
     public bool OverwriteExisting { get; set; } = false;
 
@@ -33,8 +50,21 @@ public class PluginConfiguration : BasePluginConfiguration
     /// gives up that guarantee.</summary>
     public string SubtitleTitleTag { get; set; } = "OCR";
 
-    /// <summary>Placeholder for glyphs with no database match.</summary>
-    public string UnknownCharacter { get; set; } = "*";
+    /// <summary>Placeholder for glyphs with no database match; the first character is used. Avoid "*":
+    /// dialogue censors words with it, so an unread glyph could not be told from the source text.</summary>
+    public string UnknownCharacter { get; set; } = NOcrEngineOptions.DefaultUnknownCharacter.ToString();
+
+    /// <summary>The placeholder as the single character the later stages match on. Blank falls back to the
+    /// default rather than meaning "none".</summary>
+    public char Placeholder =>
+        string.IsNullOrEmpty(UnknownCharacter) ? NOcrEngineOptions.DefaultUnknownCharacter : UnknownCharacter[0];
+
+    /// <summary>Fold dot runs ("...", ". . .", "..") into a single ellipsis character.</summary>
+    public bool NormalizeEllipsis { get; set; } = true;
+
+    /// <summary>Tags a track whose text describes sound ("[door slams]") as hearing-impaired when the source
+    /// flags nothing, as a remuxed disc usually does not.</summary>
+    public bool DetectHearingImpaired { get; set; } = true;
 
     /// <summary>Absolute floor (px) for the word-space gap; the effective threshold is the larger of this and <see cref="SpaceGapFactor"/> times the line height.</summary>
     public int SpaceMinGap { get; set; } = 6;
@@ -65,6 +95,24 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Events with a higher unknown-glyph ratio are dropped rather than emitted as noise.</summary>
     public double MaxUnknownRatio { get; set; } = 0.4;
+
+    /// <summary>Corrects residual OCR misreads with a Hunspell dictionary, when a {language}.dic is present in the dictionaries folder.</summary>
+    public bool SpellCheck { get; set; } = true;
+
+    /// <summary>Auto-downloads a missing Hunspell dictionary for a language from <see cref="DictionaryDownloadUrl"/>.</summary>
+    public bool DownloadDictionaries { get; set; } = false;
+
+    /// <summary>URL template for dictionary download; {code} is the ISO 639-1 code, and .dic/.aff are appended.</summary>
+    public string DictionaryDownloadUrl { get; set; } = "https://raw.githubusercontent.com/wooorm/dictionaries/main/dictionaries/{code}/index";
+
+    /// <summary>Applies a Subtitle Edit OCR fix replace list ({language}_OCRFixReplaceList.xml) when present in the dictionaries folder.</summary>
+    public bool UseOcrFixList { get; set; } = true;
+
+    /// <summary>URL template for the OCR fix replace list; {code} is the ISO 639-2/T code (e.g. eng, deu).</summary>
+    public string OcrFixListDownloadUrl { get; set; } = "https://raw.githubusercontent.com/SubtitleEdit/subtitleedit/main/Dictionaries/{code}_OCRFixReplaceList.xml";
+
+    /// <summary>Re-download a cached dictionary or fix list older than this many days. 0 never refreshes.</summary>
+    public int AssetRefreshDays { get; set; } = 30;
 
     /// <summary>A stream whose dropped-event ratio exceeds this is discarded entirely (no SRT written; a stale one is deleted), since the track OCR'd too poorly to be useful.</summary>
     public double MaxDroppedRatio { get; set; } = 0.25;

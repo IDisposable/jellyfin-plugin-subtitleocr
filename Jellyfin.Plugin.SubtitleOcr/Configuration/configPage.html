@@ -4,7 +4,7 @@
     <title>Subtitle OCR</title>
 </head>
 <body>
-<div id="SubtitleOcrConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+<div id="SubtitleOcrConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox,emby-select">
     <div data-role="content">
         <div class="content-primary">
             <form id="SubtitleOcrConfigForm">
@@ -43,6 +43,22 @@
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="UnknownCharacter">Unknown character placeholder</label>
                     <input id="UnknownCharacter" name="UnknownCharacter" type="text" is="emby-input" />
+                </div>
+
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input id="NormalizeEllipsis" name="NormalizeEllipsis" type="checkbox" is="emby-checkbox" />
+                        <span>Normalize ellipses</span>
+                    </label>
+                    <div class="fieldDescription checkboxFieldDescription">Fold dot runs ("...", ". . .", "..") into a single ellipsis character.</div>
+                </div>
+
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input id="DetectHearingImpaired" name="DetectHearingImpaired" type="checkbox" is="emby-checkbox" />
+                        <span>Detect hearing-impaired (SDH) tracks</span>
+                    </label>
+                    <div class="fieldDescription checkboxFieldDescription">Tag a track whose text describes sound ("[door slams]") as SDH when the source flags nothing, which is the norm for a remuxed disc.</div>
                 </div>
 
                 <div class="inputContainer">
@@ -91,6 +107,20 @@
                     </div>
                 </div>
 
+                <div class="selectContainer">
+                    <label class="selectLabel" for="OutputFormat">Output format</label>
+                    <select id="OutputFormat" name="OutputFormat" is="emby-select">
+                        <option value="Srt">SubRip (.srt)</option>
+                        <option value="Ass">Advanced SubStation Alpha (.ass)</option>
+                        <option value="Auto">Auto (ASS only when positioned, else SRT)</option>
+                    </select>
+                    <div class="fieldDescription">
+                        SRT is universal; ASS adds font/size control and keeps a subtitle's top or mid-screen
+                        placement (via an alignment bucket). Auto writes ASS per track only when a cue is
+                        positioned away from the bottom, otherwise SRT.
+                    </div>
+                </div>
+
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="SubtitleTitleTag">Generated subtitle tag</label>
                     <input id="SubtitleTitleTag" name="SubtitleTitleTag" type="text" is="emby-input" />
@@ -111,6 +141,49 @@
                     <input id="DeepSeek" name="DeepSeek" type="checkbox" is="emby-checkbox" />
                     <span>Enable widest (slowest) matching pass</span>
                 </label>
+
+                <label class="checkboxContainer">
+                    <input id="SpellCheck" name="SpellCheck" type="checkbox" is="emby-checkbox" />
+                    <span>Dictionary spell-correction (needs a {language}.dic in the dictionaries folder)</span>
+                </label>
+
+                <label class="checkboxContainer">
+                    <input id="DownloadDictionaries" name="DownloadDictionaries" type="checkbox" is="emby-checkbox" />
+                    <span>Auto-download a missing dictionary for a language</span>
+                </label>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="DictionaryDownloadUrl">Dictionary download URL</label>
+                    <input id="DictionaryDownloadUrl" name="DictionaryDownloadUrl" type="text" is="emby-input" />
+                    <div class="fieldDescription">
+                        Template with <code>{code}</code> (ISO 639-1); <code>.dic</code> and <code>.aff</code> are
+                        appended. Defaults to the wooorm/dictionaries collection. Downloaded dictionaries keep their
+                        own (often GPL/LGPL) licenses.
+                    </div>
+                </div>
+
+                <label class="checkboxContainer">
+                    <input id="UseOcrFixList" name="UseOcrFixList" type="checkbox" is="emby-checkbox" />
+                    <span>Apply Subtitle Edit OCR fix lists (auto-downloaded per language)</span>
+                </label>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="OcrFixListDownloadUrl">OCR fix list download URL</label>
+                    <input id="OcrFixListDownloadUrl" name="OcrFixListDownloadUrl" type="text" is="emby-input" />
+                    <div class="fieldDescription">
+                        Template with <code>{code}</code> (ISO 639-2/T, e.g. eng, deu). Defaults to Subtitle Edit's
+                        MIT-licensed replace lists. A missing list is skipped.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="AssetRefreshDays">Refresh downloaded assets after (days)</label>
+                    <input id="AssetRefreshDays" name="AssetRefreshDays" type="number" is="emby-input" min="0" max="3650" />
+                    <div class="fieldDescription">
+                        Re-download a cached dictionary or fix list once it is older than this many days, picking up
+                        upstream changes. 0 never refreshes (delete a file in the dictionaries folder to force it).
+                    </div>
+                </div>
 
                 <label class="checkboxContainer">
                     <input id="InvertLuma" name="InvertLuma" type="checkbox" is="emby-checkbox" />
@@ -277,16 +350,25 @@
                     (config.LanguageDatabases || []).forEach(function (entry) {
                         addLanguageDatabaseRow(entry.Language, entry.Path);
                     });
-                    document.querySelector('#UnknownCharacter').value = config.UnknownCharacter || '*';
+                    document.querySelector('#UnknownCharacter').value = config.UnknownCharacter || '□';
+                    document.querySelector('#NormalizeEllipsis').checked = config.NormalizeEllipsis;
+                    document.querySelector('#DetectHearingImpaired').checked = config.DetectHearingImpaired;
                     document.querySelector('#Languages').value = (config.Languages || []).join(', ');
                     document.querySelector('#SpaceMinGap').value = config.SpaceMinGap;
                     document.querySelector('#SpaceGapFactor').value = config.SpaceGapFactor;
                     document.querySelector('#MaxWrongPixels').value = config.MaxWrongPixels;
                     document.querySelector('#MaxUnknownRatio').value = config.MaxUnknownRatio;
                     document.querySelector('#MaxDroppedRatio').value = config.MaxDroppedRatio;
+                    document.querySelector('#OutputFormat').value = config.OutputFormat;
                     document.querySelector('#SubtitleTitleTag').value = config.SubtitleTitleTag || '';
                     document.querySelector('#OverwriteExisting').checked = config.OverwriteExisting;
                     document.querySelector('#DeepSeek').checked = config.DeepSeek;
+                    document.querySelector('#SpellCheck').checked = config.SpellCheck;
+                    document.querySelector('#DownloadDictionaries').checked = config.DownloadDictionaries;
+                    document.querySelector('#DictionaryDownloadUrl').value = config.DictionaryDownloadUrl || '';
+                    document.querySelector('#UseOcrFixList').checked = config.UseOcrFixList;
+                    document.querySelector('#OcrFixListDownloadUrl').value = config.OcrFixListDownloadUrl || '';
+                    document.querySelector('#AssetRefreshDays').value = config.AssetRefreshDays;
                     document.querySelector('#InvertLuma').checked = config.InvertLuma;
                     document.querySelector('#SkipForcedOnly').checked = config.SkipForcedOnly;
                     document.querySelector('#SkipLanguagesWithTextSubtitle').checked = config.SkipLanguagesWithTextSubtitle;
@@ -310,6 +392,8 @@
                             };
                         }).filter(function (entry) { return entry.Language && entry.Path; });
                     config.UnknownCharacter = document.querySelector('#UnknownCharacter').value;
+                    config.NormalizeEllipsis = document.querySelector('#NormalizeEllipsis').checked;
+                    config.DetectHearingImpaired = document.querySelector('#DetectHearingImpaired').checked;
                     config.Languages = document.querySelector('#Languages').value
                         .split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s; });
                     config.SpaceMinGap = parseInt(document.querySelector('#SpaceMinGap').value, 10);
@@ -317,9 +401,16 @@
                     config.MaxWrongPixels = parseInt(document.querySelector('#MaxWrongPixels').value, 10);
                     config.MaxUnknownRatio = parseFloat(document.querySelector('#MaxUnknownRatio').value);
                     config.MaxDroppedRatio = parseFloat(document.querySelector('#MaxDroppedRatio').value);
+                    config.OutputFormat = document.querySelector('#OutputFormat').value;
                     config.SubtitleTitleTag = document.querySelector('#SubtitleTitleTag').value.trim();
                     config.OverwriteExisting = document.querySelector('#OverwriteExisting').checked;
                     config.DeepSeek = document.querySelector('#DeepSeek').checked;
+                    config.SpellCheck = document.querySelector('#SpellCheck').checked;
+                    config.DownloadDictionaries = document.querySelector('#DownloadDictionaries').checked;
+                    config.DictionaryDownloadUrl = document.querySelector('#DictionaryDownloadUrl').value.trim();
+                    config.UseOcrFixList = document.querySelector('#UseOcrFixList').checked;
+                    config.OcrFixListDownloadUrl = document.querySelector('#OcrFixListDownloadUrl').value.trim();
+                    config.AssetRefreshDays = parseInt(document.querySelector('#AssetRefreshDays').value, 10);
                     config.InvertLuma = document.querySelector('#InvertLuma').checked;
                     config.SkipForcedOnly = document.querySelector('#SkipForcedOnly').checked;
                     config.SkipLanguagesWithTextSubtitle = document.querySelector('#SkipLanguagesWithTextSubtitle').checked;

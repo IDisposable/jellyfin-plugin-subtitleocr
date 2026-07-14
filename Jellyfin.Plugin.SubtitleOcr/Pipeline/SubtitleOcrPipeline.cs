@@ -1,5 +1,7 @@
 using System.Collections.Frozen;
+using System.Net.Http;
 using Jellyfin.Plugin.SubtitleOcr.Configuration;
+using MediaBrowser.Common.Net;
 using Microsoft.Extensions.Logging;
 using SubtitleOcr.Core.Extraction;
 using SubtitleOcr.Core.NOcr;
@@ -19,25 +21,56 @@ public class SubtitleOcrPipeline
 {
     private const string EmbeddedLatinKey = "<embedded-latin>";
 
-    private readonly ILogger<SubtitleOcrPipeline> _logger;
-    private readonly Dictionary<string, NOcrDb> _dbCache = new(StringComparer.Ordinal);
+    // A subtitle whose vertical centre is above this fraction of the frame is treated as positioned
+    // (a sign or top caption) rather than normal bottom dialogue, so SRT would misplace it.
+    private const double AssPositionThreshold = 0.6;
 
-    public SubtitleOcrPipeline(ILogger<SubtitleOcrPipeline> logger)
+    private readonly ILogger<SubtitleOcrPipeline> _logger;
+    private readonly IHttpClientFactory _httpClientFactory;
+    // Plain dictionaries: the run flag below guarantees only one task uses the pipeline at a time.
+    private readonly Dictionary<string, NOcrDb> _dbCache = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ISpellCorrector> _spellCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, OcrFixReplaceList> _ocrFixCache = new(StringComparer.OrdinalIgnoreCase);
+    private int _running;
+
+    public SubtitleOcrPipeline(ILogger<SubtitleOcrPipeline> logger, IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
+        _httpClientFactory = httpClientFactory;
+    }
+
+    /// <summary>Claims the single-run slot without blocking, so the tasks cannot use the shared caches at
+    /// once. Returns a token to dispose when the run ends, or null if another task holds it (caller skips).</summary>
+    public IDisposable? TryBeginRun() =>
+        Interlocked.CompareExchange(ref _running, 1, 0) == 0 ? new RunToken(this) : null;
+
+    private sealed class RunToken : IDisposable
+    {
+        private readonly SubtitleOcrPipeline _pipeline;
+
+        public RunToken(SubtitleOcrPipeline pipeline) => _pipeline = pipeline;
+
+        public void Dispose() => Interlocked.Exchange(ref _pipeline._running, 0);
     }
 
     /// <summary>
-    /// Returns the number of SRT files written. <paramref name="nOcrFolder"/> is the drop-in folder for
-    /// per-language databases; <paramref name="progress"/> receives a 0..1 fraction across this item's
-    /// streams and their subtitle images. When <see cref="PluginConfiguration.SkipLanguagesWithTextSubtitle"/>
-    /// is set, image streams whose language appears in <paramref name="textSubtitleLanguages"/> (the raw
-    /// language codes of the item's existing text-based subtitles) are skipped.
+    /// Processes one media file end to end: enumerates image-based subtitle streams, decodes, OCRs, corrects,
+    /// and writes SRT files. Returns the written files and the image streams found. See
+    /// <see cref="SubtitleOcrRequest"/> for the inputs.
     /// </summary>
-    public async Task<SubtitleOcrResult> ProcessAsync(string mediaPath, string ffprobePath, PluginConfiguration config, string? nOcrFolder, IReadOnlySet<string>? textSubtitleLanguages, IProgress<double>? progress, CancellationToken cancellationToken)
+    public async Task<SubtitleOcrResult> ProcessAsync(SubtitleOcrRequest request, CancellationToken cancellationToken)
     {
-        var reader = new FfprobeSubtitleReader(ffprobePath);
-        var streams = await reader.GetImageSubtitleStreamsAsync(mediaPath, cancellationToken).ConfigureAwait(false);
+        var mediaPath = request.MediaPath;
+        var config = request.Config;
+        var nOcrFolder = request.NOcrFolder;
+        var dictionaryFolder = request.DictionaryFolder;
+        var textSubtitleLanguages = request.TextSubtitleLanguages;
+        var protectedWords = request.ProtectedWords;
+        var progress = request.Progress;
+
+        var reader = new FfprobeSubtitleReader(request.FfprobePath);
+        var header = await reader.ReadHeaderAsync(mediaPath, cancellationToken).ConfigureAwait(false);
+        var streams = header.Streams;
         if (streams.Count == 0)
         {
             return new SubtitleOcrResult(Array.Empty<WrittenSubtitle>(), streams);
@@ -46,14 +79,23 @@ public class SubtitleOcrPipeline
         // Normalize the existing text-subtitle languages once so per-stream lookups align with the
         // normalized image-stream language (eng/en/... collapse to one code). Empty (the shared
         // allocation-free singleton) when the option is off, so Contains is always false.
-        IReadOnlySet<string> coveredLanguages = config.SkipLanguagesWithTextSubtitle && textSubtitleLanguages is { Count: > 0 }
+        IReadOnlySet<string> coveredLanguages = config.SkipLanguagesWithTextSubtitle && textSubtitleLanguages.Count > 0
             ? textSubtitleLanguages.Select(LanguageCodes.Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : FrozenSet<string>.Empty;
 
-        // Optional allowlist: OCR only the selected languages (normalized). Null when empty (extract all).
-        IReadOnlySet<string>? allowedLanguages = config.Languages is { Length: > 0 }
+        // Allowlist: OCR only the selected languages (normalized). Empty means extract all.
+        IReadOnlySet<string> allowedLanguages = config.Languages is { Length: > 0 }
             ? config.Languages.Select(LanguageCodes.Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase)
-            : null;
+            : FrozenSet<string>.Empty;
+
+        // Protect proper nouns from spell-correction: the item's metadata words plus the file's own tags
+        // (container/stream/chapter titles), which the library metadata may not carry.
+        var effectiveProtected = protectedWords;
+        if (config.SpellCheck && header.MetadataWords.Count > 0)
+        {
+            header.MetadataWords.UnionWith(protectedWords);
+            effectiveProtected = header.MetadataWords;
+        }
 
         var options = new NOcrEngineOptions
         {
@@ -61,19 +103,21 @@ public class SubtitleOcrPipeline
             SpaceGapFactor = config.SpaceGapFactor,
             MaxWrongPixels = config.MaxWrongPixels,
             DeepSeek = config.DeepSeek,
-            UnknownCharacter = config.UnknownCharacter,
+            UnknownCharacter = config.Placeholder,
         };
 
         var titleTag = SanitizeTag(config.SubtitleTitleTag);
 
         var writtenSubtitles = new List<WrittenSubtitle>();
+        var positioned = false;
 
-        // Count streams per language so a language with several tracks keeps the source stream number
-        // in each file name (nothing overwrites); a lone track gets the clean {base}.{lang}.srt.
+        // A language with several tracks keeps the source stream number in each file name; a lone track gets
+        // the clean {base}.{lang}.srt. Keyed by the normalized code, which is what names the file: "dut" and
+        // "nld" tracks would otherwise both claim {base}.nld.srt.
         var languageCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var s in streams)
         {
-            var lang = string.IsNullOrEmpty(s.Language) ? LanguageCodes.Undetermined : s.Language;
+            var lang = LanguageCodes.Normalize(string.IsNullOrEmpty(s.Language) ? LanguageCodes.Undetermined : s.Language);
             languageCounts[lang] = languageCounts.GetValueOrDefault(lang) + 1;
         }
 
@@ -86,7 +130,7 @@ public class SubtitleOcrPipeline
             var language = string.IsNullOrEmpty(stream.Language) ? LanguageCodes.Undetermined : stream.Language;
             var normalizedLanguage = LanguageCodes.Normalize(language);
 
-            if (allowedLanguages is not null && !allowedLanguages.Contains(normalizedLanguage))
+            if (allowedLanguages.Count > 0 && !allowedLanguages.Contains(normalizedLanguage))
             {
                 _logger.LogDebug("Language {Language} not selected, skipping image stream {Index}", normalizedLanguage, stream.StreamIndex);
                 continue;
@@ -103,11 +147,37 @@ public class SubtitleOcrPipeline
                 continue;
             }
 
-            var srtFilePath = BuildSrtFilePath(mediaPath, language, titleTag, stream.StreamIndex, languageCounts[language] > 1);
-            if (File.Exists(srtFilePath) && !config.OverwriteExisting)
+            // Identifies the track in Jellyfin: its title, else "Commentary" from the disposition.
+            var descriptor = SanitizeTag(stream.Title);
+            if (descriptor.Length == 0 && stream.Commentary)
             {
-                _logger.LogDebug("SRT file exists, skipping: {Path}", srtFilePath);
-                continue;
+                descriptor = "Commentary";
+            }
+
+            var includeStreamIndex = languageCounts[normalizedLanguage] > 1;
+
+            // A tagged track's file name is known now (unless Auto defers the extension), so skip early
+            // (before OCR) if it already exists. Undetermined language and Auto format both depend on the OCR
+            // text below, so their existence check waits until after recognition.
+            var isUndetermined = normalizedLanguage == LanguageCodes.Undetermined;
+            if (!isUndetermined && config.OutputFormat != SubtitleOutputFormat.Auto && !config.OverwriteExisting)
+            {
+                var extension = config.OutputFormat == SubtitleOutputFormat.Ass ? "ass" : "srt";
+                var earlyPath = BuildOutputPath(
+                    mediaPath, normalizedLanguage, titleTag, descriptor, stream.Forced, stream.HearingImpaired,
+                    stream.StreamIndex, includeStreamIndex, extension);
+
+                // SDH is only known after recognition, so an existing file may carry a .sdh this cannot
+                // predict. Either name means the work is done.
+                var earlySdhPath = BuildOutputPath(
+                    mediaPath, normalizedLanguage, titleTag, descriptor, stream.Forced, hearingImpaired: true,
+                    stream.StreamIndex, includeStreamIndex, extension);
+
+                if (File.Exists(earlyPath) || File.Exists(earlySdhPath))
+                {
+                    _logger.LogDebug("Subtitle file exists, skipping: {Path}", earlyPath);
+                    continue;
+                }
             }
 
             var engine = new NOcrEngine(GetDatabase(config, normalizedLanguage, nOcrFolder), options);
@@ -132,6 +202,13 @@ public class SubtitleOcrPipeline
                 progress?.Report((si + (double)ii / images.Count) / streams.Count);
 
                 var image = images[ii];
+
+                // A subtitle sitting above the bottom region (a sign or top caption) loses its placement in SRT.
+                if (image.VerticalCenter < AssPositionThreshold)
+                {
+                    positioned = true;
+                }
+
                 if (config.SkipForcedOnly && image.Forced)
                 {
                     continue;
@@ -154,7 +231,8 @@ public class SubtitleOcrPipeline
                 {
                     Start = image.Start,
                     End = image.End,
-                    Text = OcrPostProcessor.Fix(result.Text, latinScript),
+                    Text = OcrPostProcessor.Fix(result.Text, latinScript, config.Placeholder, config.NormalizeEllipsis),
+                    VerticalCenter = image.VerticalCenter,
                 });
             }
 
@@ -163,6 +241,53 @@ public class SubtitleOcrPipeline
                 _logger.LogWarning(
                     "Stream {Index} of {Path} produced no usable events ({Dropped} dropped); check InvertLuma or train the database",
                     stream.StreamIndex, mediaPath, dropped);
+                continue;
+            }
+
+            // Label an undetermined track with the language detected from its recognized text.
+            var effectiveNormalized = normalizedLanguage;
+            if (isUndetermined)
+            {
+                var detected = LanguageDetector.Detect(string.Join(' ', events.Select(e => e.Text)));
+                if (detected is not null)
+                {
+                    effectiveNormalized = LanguageCodes.Normalize(detected);
+                    _logger.LogInformation("Detected {Language} for untagged image stream {Index}", effectiveNormalized, stream.StreamIndex);
+
+                    if (coveredLanguages.Contains(effectiveNormalized))
+                    {
+                        _logger.LogInformation(
+                            "Text subtitle already present for detected {Language}, discarding image stream {Index}",
+                            effectiveNormalized, stream.StreamIndex);
+                        continue;
+                    }
+                }
+            }
+
+            // Auto picks ASS only when a cue is positioned.
+            var useAss = config.OutputFormat switch
+            {
+                SubtitleOutputFormat.Ass => true,
+                SubtitleOutputFormat.Auto => events.Exists(e => e.VerticalCenter < AssPositionThreshold),
+                _ => false,
+            };
+
+            // A remuxed disc flags nothing, so fall back to what the text says.
+            var hearingImpaired = stream.HearingImpaired;
+            if (!hearingImpaired
+                && config.DetectHearingImpaired
+                && SdhDetector.IsHearingImpaired(events.ConvertAll(e => e.Text), SdhDetector.DefaultRatio, SdhDetector.DefaultMinimumCues))
+            {
+                hearingImpaired = true;
+                _logger.LogInformation("Image stream {Index} reads as hearing-impaired (SDH)", stream.StreamIndex);
+            }
+
+            var srtFilePath = BuildOutputPath(
+                mediaPath, effectiveNormalized, titleTag, descriptor, stream.Forced, hearingImpaired,
+                stream.StreamIndex, includeStreamIndex, useAss ? "ass" : "srt");
+            if (File.Exists(srtFilePath) && !config.OverwriteExisting)
+            {
+                _logger.LogDebug("SRT file exists, skipping: {Path}", srtFilePath);
                 continue;
             }
 
@@ -180,10 +305,19 @@ public class SubtitleOcrPipeline
                 continue;
             }
 
+            // Apply the OCR fix list then spell-correct, both with the effective (possibly detected) language.
+            var ocrFix = await GetOcrFixListAsync(effectiveNormalized, dictionaryFolder, config, cancellationToken).ConfigureAwait(false);
+            var spell = await GetSpellCorrectorAsync(effectiveNormalized, dictionaryFolder, config, cancellationToken).ConfigureAwait(false);
+            foreach (var e in events)
+            {
+                e.Text = spell.Correct(ocrFix.Apply(e.Text), effectiveProtected);
+            }
+
             events.Sort((a, b) => a.Start.CompareTo(b.Start));
             SrtWriter.NormalizeTimings(events);
-            await File.WriteAllTextAsync(srtFilePath, SrtWriter.Serialize(events), cancellationToken).ConfigureAwait(false);
-            writtenSubtitles.Add(new WrittenSubtitle(srtFilePath, normalizedLanguage, events.Count));
+            var content = useAss ? AssWriter.Serialize(events) : SrtWriter.Serialize(events);
+            await File.WriteAllTextAsync(srtFilePath, content, cancellationToken).ConfigureAwait(false);
+            writtenSubtitles.Add(new WrittenSubtitle(srtFilePath, effectiveNormalized, events.Count));
 
             _logger.LogInformation(
                 "Wrote {Count} events ({Dropped} dropped) to {Path}",
@@ -191,7 +325,129 @@ public class SubtitleOcrPipeline
         }
 
         progress?.Report(1.0);
-        return new SubtitleOcrResult(writtenSubtitles, streams);
+        return new SubtitleOcrResult(writtenSubtitles, streams) { PositionedSubtitles = positioned };
+    }
+
+    /// <summary>Loads and caches the Hunspell corrector for a language from a drop-in {language}.dic, downloading
+    /// it first when enabled. Returns the no-op corrector when spell-check is off or no dictionary is available.</summary>
+    private async Task<ISpellCorrector> GetSpellCorrectorAsync(string normalizedLanguage, string dictionaryFolder, PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        if (!config.SpellCheck || string.IsNullOrEmpty(normalizedLanguage) || normalizedLanguage == LanguageCodes.Undetermined)
+        {
+            return NullSpellCorrector.Instance;
+        }
+
+        if (_spellCache.TryGetValue(normalizedLanguage, out var cached))
+        {
+            return cached;
+        }
+
+        var dicPath = Path.Combine(dictionaryFolder, $"{normalizedLanguage}.dic");
+        if (NeedsDownload(dicPath, config) && config.DownloadDictionaries && !string.IsNullOrWhiteSpace(config.DictionaryDownloadUrl))
+        {
+            await TryDownloadDictionaryAsync(normalizedLanguage, dicPath, config.DictionaryDownloadUrl, cancellationToken).ConfigureAwait(false);
+        }
+
+        var corrector = NullSpellCorrector.Instance;
+        if (File.Exists(dicPath))
+        {
+            corrector = SpellCorrector.LoadDictionary(dicPath, config.Placeholder);
+            if (corrector is NullSpellCorrector)
+            {
+                _logger.LogWarning("Failed to load spell dictionary {Path}", dicPath);
+            }
+            else
+            {
+                _logger.LogInformation("Loaded spell dictionary for {Language}: {Path}", normalizedLanguage, dicPath);
+            }
+        }
+
+        _spellCache[normalizedLanguage] = corrector;
+        return corrector;
+    }
+
+    /// <summary>Loads and caches the OCR fix replace list for a language, downloading it first when enabled.
+    /// Returns <see cref="OcrFixReplaceList.Empty"/> when disabled or none is available.</summary>
+    private async Task<OcrFixReplaceList> GetOcrFixListAsync(string normalizedLanguage, string dictionaryFolder, PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        if (!config.UseOcrFixList || string.IsNullOrEmpty(normalizedLanguage) || normalizedLanguage == LanguageCodes.Undetermined)
+        {
+            return OcrFixReplaceList.Empty;
+        }
+
+        if (_ocrFixCache.TryGetValue(normalizedLanguage, out var cached))
+        {
+            return cached;
+        }
+
+        var path = Path.Combine(dictionaryFolder, $"{normalizedLanguage}_OCRFixReplaceList.xml");
+        if (NeedsDownload(path, config) && !string.IsNullOrWhiteSpace(config.OcrFixListDownloadUrl))
+        {
+            var url = config.OcrFixListDownloadUrl.Replace("{code}", normalizedLanguage, StringComparison.Ordinal);
+            await TryDownloadFileAsync(path, url, cancellationToken).ConfigureAwait(false);
+        }
+
+        var list = File.Exists(path) ? OcrFixReplaceList.LoadFile(path) : OcrFixReplaceList.Empty;
+        if (!list.IsEmpty)
+        {
+            _logger.LogInformation("Loaded OCR fix list for {Language}: {Path}", normalizedLanguage, path);
+        }
+
+        _ocrFixCache[normalizedLanguage] = list;
+        return list;
+    }
+
+    /// <summary>True when a cached asset is absent or older than the configured refresh interval.</summary>
+    private static bool NeedsDownload(string path, PluginConfiguration config)
+    {
+        if (!File.Exists(path))
+        {
+            return true;
+        }
+
+        return config.AssetRefreshDays > 0
+            && (DateTime.UtcNow - File.GetLastWriteTimeUtc(path)).TotalDays >= config.AssetRefreshDays;
+    }
+
+    private async Task TryDownloadFileAsync(string path, string url, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var http = _httpClientFactory.CreateClient(NamedClient.Default);
+            var bytes = await http.GetByteArrayAsync(new Uri(url), cancellationToken).ConfigureAwait(false);
+            await File.WriteAllBytesAsync(path, bytes, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Downloaded {Path} from {Url}", path, url);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not download {Url}", url);
+        }
+    }
+
+    /// <summary>Downloads {language}.dic/.aff from the configured template ({code} = ISO 639-1, "no" mapped to
+    /// Bokmal "nb" for the wooorm source). Best-effort: a failure leaves the language without a dictionary.</summary>
+    private async Task TryDownloadDictionaryAsync(string normalizedLanguage, string dicPath, string urlTemplate, CancellationToken cancellationToken)
+    {
+        var code = LanguageCodes.ToTwoLetter(normalizedLanguage) ?? normalizedLanguage;
+        if (code == "no")
+        {
+            code = "nb";
+        }
+
+        var baseUrl = urlTemplate.Replace("{code}", code, StringComparison.Ordinal);
+        try
+        {
+            var http = _httpClientFactory.CreateClient(NamedClient.Default);
+            var dic = await http.GetByteArrayAsync(new Uri(baseUrl + ".dic"), cancellationToken).ConfigureAwait(false);
+            var aff = await http.GetByteArrayAsync(new Uri(baseUrl + ".aff"), cancellationToken).ConfigureAwait(false);
+            await File.WriteAllBytesAsync(dicPath, dic, cancellationToken).ConfigureAwait(false);
+            await File.WriteAllBytesAsync(Path.ChangeExtension(dicPath, ".aff"), aff, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Downloaded {Language} dictionary from {Url}", normalizedLanguage, baseUrl);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not download {Language} dictionary from {Url}", normalizedLanguage, baseUrl);
+        }
     }
 
     /// <summary>
@@ -199,7 +455,7 @@ public class SubtitleOcrPipeline
     /// entry, then a drop-in <c>{language}.nocr</c> in <paramref name="nOcrFolder"/>, then
     /// <see cref="PluginConfiguration.NOcrDatabasePath"/>, then the bundled Latin database.
     /// </summary>
-    private NOcrDb GetDatabase(PluginConfiguration config, string normalizedLanguage, string? nOcrFolder)
+    private NOcrDb GetDatabase(PluginConfiguration config, string normalizedLanguage, string nOcrFolder)
     {
         var path = ResolveDatabasePath(config, normalizedLanguage, nOcrFolder);
         var key = path ?? EmbeddedLatinKey;
@@ -217,7 +473,7 @@ public class SubtitleOcrPipeline
     }
 
     /// <summary>Returns the database path for a language, or null to use the bundled Latin database.</summary>
-    private static string? ResolveDatabasePath(PluginConfiguration config, string normalizedLanguage, string? nOcrFolder)
+    private static string? ResolveDatabasePath(PluginConfiguration config, string normalizedLanguage, string nOcrFolder)
     {
         foreach (var entry in config.LanguageDatabases)
         {
@@ -229,35 +485,59 @@ public class SubtitleOcrPipeline
         }
 
         // Drop-in convention: {language}.nocr in the plugin's nOCR folder.
-        if (nOcrFolder is not null)
+        var dropIn = Path.Combine(nOcrFolder, $"{normalizedLanguage}.nocr");
+        if (File.Exists(dropIn))
         {
-            var dropIn = Path.Combine(nOcrFolder, $"{normalizedLanguage}.nocr");
-            if (File.Exists(dropIn))
-            {
-                return dropIn;
-            }
+            return dropIn;
         }
 
         return string.IsNullOrWhiteSpace(config.NOcrDatabasePath) ? null : Resolve(config.NOcrDatabasePath, nOcrFolder);
     }
 
     /// <summary>A rooted path is used as-is; a bare name is resolved against the drop-in folder.</summary>
-    private static string Resolve(string path, string? nOcrFolder) =>
-        Path.IsPathRooted(path) || nOcrFolder is null ? path : Path.Combine(nOcrFolder, path);
+    private static string Resolve(string path, string nOcrFolder) =>
+        Path.IsPathRooted(path) ? path : Path.Combine(nOcrFolder, path);
 
     /// <summary>
-    /// A single track gets {base}.{lang}.{tag}.srt; several tracks sharing a language each keep their source
-    /// stream index ({base}.{lang}.{tag}.{index}.srt). The tag (empty to omit) marks the file as plugin-created
-    /// so overwrite and discard only ever touch our own output. Jellyfin reads it as the subtitle title.
+    /// Builds {base}.{lang}[.{descriptor}][.forced][.sdh][.{tag}][.{index}].srt. The tag (empty to omit) marks
+    /// the file as plugin-created, so overwrite and discard only ever touch our own output; the descriptor
+    /// (source title or "Commentary") and forced/sdh flags let Jellyfin label the track; the index keeps
+    /// several tracks of one language from overwriting each other.
     /// </summary>
-    private static string BuildSrtFilePath(string mediaPath, string language, string tag, int streamIndex, bool includeStreamIndex)
+    private static string BuildOutputPath(
+        string mediaPath, string language, string tag, string? descriptor, bool forced, bool hearingImpaired,
+        int streamIndex, bool includeStreamIndex, string extension)
     {
         var directory = Path.GetDirectoryName(mediaPath) ?? string.Empty;
-        var baseName = Path.GetFileNameWithoutExtension(mediaPath);
-        var tagPart = tag.Length == 0 ? string.Empty : $".{tag}";
-        return includeStreamIndex
-            ? Path.Combine(directory, $"{baseName}.{language}{tagPart}.{streamIndex}.srt")
-            : Path.Combine(directory, $"{baseName}.{language}{tagPart}.srt");
+        var name = $"{Path.GetFileNameWithoutExtension(mediaPath)}.{language}";
+
+        if (!string.IsNullOrEmpty(descriptor))
+        {
+            name += $".{descriptor}";
+        }
+
+        // Flags Jellyfin recognizes on external subtitle file names.
+        if (forced)
+        {
+            name += ".forced";
+        }
+
+        if (hearingImpaired)
+        {
+            name += ".sdh";
+        }
+
+        if (tag.Length > 0)
+        {
+            name += $".{tag}";
+        }
+
+        if (includeStreamIndex)
+        {
+            name += $".{streamIndex}";
+        }
+
+        return Path.Combine(directory, $"{name}.{extension}");
     }
 
     /// <summary>Strips dots and path-invalid characters so the tag stays a single, safe file-name segment.</summary>
@@ -273,12 +553,55 @@ public class SubtitleOcrPipeline
     }
 }
 
+/// <summary>No-op progress used when a caller does not track progress.</summary>
+public sealed class NullProgress : IProgress<double>
+{
+    public static readonly IProgress<double> Instance = new NullProgress();
+
+    private NullProgress()
+    {
+    }
+
+    public void Report(double value)
+    {
+    }
+}
+
+/// <summary>Inputs for processing one media file. Optional collections/progress default to empty/no-op.</summary>
+public sealed record SubtitleOcrRequest
+{
+    public required string MediaPath { get; init; }
+
+    public required string FfprobePath { get; init; }
+
+    public required PluginConfiguration Config { get; init; }
+
+    public required string NOcrFolder { get; init; }
+
+    public required string DictionaryFolder { get; init; }
+
+    /// <summary>Languages the item already has a text subtitle for (image tracks in these are skipped).</summary>
+    public IReadOnlySet<string> TextSubtitleLanguages { get; init; } = FrozenSet<string>.Empty;
+
+    /// <summary>Words spell-correction must never change (item and file metadata proper nouns).</summary>
+    public IReadOnlySet<string> ProtectedWords { get; init; } = FrozenSet<string>.Empty;
+
+    public IProgress<double> Progress { get; init; } = NullProgress.Instance;
+}
+
 /// <summary>Outcome of processing one media file: the SRT files written and the image-based subtitle
 /// streams ffprobe found (present regardless of whether each was written, skipped, or empty).</summary>
 public sealed record SubtitleOcrResult(IReadOnlyList<WrittenSubtitle> WrittenSubtitles, IReadOnlyList<ImageSubtitleStream> ImageStreams)
 {
     public int SrtFilesWritten => WrittenSubtitles.Count;
+
+    /// <summary>True when a subtitle was positioned away from the bottom (a sign or top caption), which SRT
+    /// cannot place and ASS could.</summary>
+    public bool PositionedSubtitles { get; init; }
 }
 
 /// <summary>One SRT the pipeline wrote: its path, language, and event count.</summary>
 public sealed record WrittenSubtitle(string Path, string Language, int Events);
+
+/// <summary>Result of reprocessing an existing SRT: the new content, its effective language, and whether the
+/// language changed (an undetermined track was identified) so the file should be renamed.</summary>

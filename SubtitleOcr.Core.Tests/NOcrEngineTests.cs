@@ -30,6 +30,47 @@ public class NOcrEngineTests
         Assert.Contains('H', result.Text);
     }
 
+    // A comma is the same shape either way, so it carries no italic signal.
+    [Theory]
+    [InlineData(",")]
+    [InlineData(".")]
+    [InlineData("…")]
+    public void Recognize_ItalicPunctuation_EmitsNoItalicTags(string punctuation)
+    {
+        var result = RecognizeAsItalic(punctuation);
+
+        Assert.DoesNotContain("<i>", result.Text, StringComparison.Ordinal);
+        Assert.Contains(punctuation, result.Text, StringComparison.Ordinal);
+    }
+
+    // The counterpart: a letter does carry the signal, so it must still be tagged.
+    [Fact]
+    public void Recognize_ItalicLetter_StillEmitsItalicTags()
+    {
+        var result = RecognizeAsItalic("H");
+
+        Assert.Contains("<i>", result.Text, StringComparison.Ordinal);
+    }
+
+    // The rule keys off the matched entry's text, so this reuses one shape known to match itself and
+    // relabels it: rasterized punctuation is too small to match, and an italic shape never matches itself.
+    private static NOcrResult RecognizeAsItalic(string text)
+    {
+        var latin = NOcrDb.LoadEmbeddedLatin();
+        var glyph = latin.OcrCharacters.Find(c => c.Text == "H" && !c.Italic && c.LinesForeground.Count > 5);
+        Assert.NotNull(glyph);
+        glyph!.Italic = true;
+        glyph.Text = text;
+
+        var db = new NOcrDb();
+        db.OcrCharacters.Add(glyph);
+
+        var canvas = new SubBitmap(glyph.Width + 4, glyph.MarginTop + glyph.Height + 2);
+        Draw(canvas, glyph, offsetX: 0);
+
+        return new NOcrEngine(db, new NOcrEngineOptions { MaxWrongPixels = 0, DeepSeek = false }).Recognize(canvas);
+    }
+
     private static void Draw(SubBitmap canvas, NOcrChar glyph, int offsetX)
     {
         foreach (var line in glyph.LinesForeground)

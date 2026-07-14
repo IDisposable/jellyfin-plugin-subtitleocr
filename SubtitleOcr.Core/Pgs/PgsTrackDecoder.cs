@@ -31,6 +31,7 @@ public static class PgsTrackDecoder
                 images.Add(new SubtitleImage
                 {
                     Bitmap = pending.Bitmap!,
+                    VerticalCenter = pending.VerticalCenter,
                     Start = pendingStart,
                     End = packet.Pts,
                     Forced = pending.Forced,

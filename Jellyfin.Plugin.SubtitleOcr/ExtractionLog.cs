@@ -23,7 +23,7 @@ public sealed class ExtractionRecord
 /// <summary>Loads and saves the extraction log (JSON in the plugin data folder), newest entries kept.</summary>
 public sealed class ExtractionLog
 {
-    private const int MaxRecords = 1000;
+    private const int MaxRecords = 10_000;
 
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false };
 

@@ -19,8 +19,14 @@ public sealed class NOcrEngineOptions
     /// <summary>Enables the widest cascade pass (slower, catches degraded glyphs).</summary>
     public bool DeepSeek { get; init; } = true;
 
-    /// <summary>Emitted for unmatched glyphs; SE convention is "*".</summary>
-    public string UnknownCharacter { get; init; } = "*";
+    /// <summary>
+    /// Emitted for unmatched glyphs. Not Subtitle Edit's "*": dialogue censors words with that, so an unread
+    /// glyph could not be told from source text. U+25A1 is the conventional missing-glyph mark.
+    /// </summary>
+    public const char DefaultUnknownCharacter = '□';
+
+    /// <summary>Emitted for unmatched glyphs. One character, always: the later stages match on it.</summary>
+    public char UnknownCharacter { get; init; } = DefaultUnknownCharacter;
 
     /// <summary>Wraps italic glyph runs in &lt;i&gt; tags.</summary>
     public bool EmitItalicTags { get; init; } = true;
@@ -73,7 +79,9 @@ public sealed class NOcrEngine
                 continue;
             }
 
-            if (_options.EmitItalicTags && match.Italic != inItalic)
+            // Punctuation carries no italic signal (a comma is the same shape either way), so it inherits
+            // the current state instead of opening a run of its own or breaking one that spans it.
+            if (_options.EmitItalicTags && match.Italic != inItalic && HasLetterOrDigit(match.Text))
             {
                 sb.Append(match.Italic ? "<i>" : "</i>");
                 inItalic = match.Italic;
@@ -90,6 +98,19 @@ public sealed class NOcrEngine
             GlyphCount = items.Count,
             UnknownCount = unknown,
         };
+    }
+
+    private static bool HasLetterOrDigit(string text)
+    {
+        foreach (var c in text)
+        {
+            if (char.IsLetterOrDigit(c))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void CloseItalic(StringBuilder sb, ref bool inItalic)

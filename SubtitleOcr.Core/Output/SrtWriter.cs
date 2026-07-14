@@ -8,6 +8,10 @@ public sealed class SubtitleEvent
     public TimeSpan Start { get; set; }
     public TimeSpan End { get; set; }
     public required string Text { get; set; }
+
+    /// <summary>Normalized vertical centre on screen (0 top, 1 bottom); ~0.9 for normal bottom placement.
+    /// Used to pick an ASS alignment bucket and to trigger Auto-format selection. SRT ignores it.</summary>
+    public double VerticalCenter { get; set; } = 0.9;
 }
 
 public static class SrtWriter

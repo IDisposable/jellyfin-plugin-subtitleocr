@@ -1,7 +1,9 @@
+using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace SubtitleOcr.Core.Extraction;
 
@@ -27,75 +29,167 @@ public sealed class ImageSubtitleStream
     public SubtitleFormat Format { get; init; }
     public string? Language { get; init; }
 
+    /// <summary>Stream title tag (e.g. "Director Commentary", "SDH"), when the source sets one.</summary>
+    public string? Title { get; init; }
+
+    public bool Forced { get; init; }
+
+    public bool HearingImpaired { get; init; }
+
+    public bool Commentary { get; init; }
+
     /// <summary>idx-style palette text; VobSub only (PGS carries its palette in-band).</summary>
     public string? ExtradataText { get; init; }
 }
+
+/// <summary>One header probe's results: the image-based subtitle streams and the words from the file's tags.</summary>
+public sealed record FfprobeHeader(List<ImageSubtitleStream> Streams, HashSet<string> MetadataWords);
 
 /// <summary>
 /// Reads image-based subtitle packets (VobSub and PGS) from any container via ffprobe JSON output.
 /// Demuxers hand ffprobe fully assembled SPUs / PGS display sets, which sidesteps PES/idx handling
 /// and works uniformly for MKV, VOB/PS and M2TS sources.
 /// </summary>
-public sealed class FfprobeSubtitleReader
+public sealed partial class FfprobeSubtitleReader
 {
-    private static readonly Dictionary<string, SubtitleFormat> ImageSubtitleCodecs = new(StringComparer.OrdinalIgnoreCase)
+    [GeneratedRegex(@"\p{L}{2,}")]
+    private static partial Regex MetadataWord();
+
+    private static readonly FrozenDictionary<string, SubtitleFormat> ImageSubtitleCodecs = new Dictionary<string, SubtitleFormat>(StringComparer.OrdinalIgnoreCase)
     {
         ["dvd_subtitle"] = SubtitleFormat.DvdSub,
         ["dvdsub"] = SubtitleFormat.DvdSub,
         ["vobsub"] = SubtitleFormat.DvdSub,
         ["hdmv_pgs_subtitle"] = SubtitleFormat.Pgs,
         ["pgssub"] = SubtitleFormat.Pgs,
-    };
+    }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     private readonly string _ffprobePath;
 
     public FfprobeSubtitleReader(string ffprobePath) => _ffprobePath = ffprobePath;
 
-    /// <summary>Lists image-based subtitle streams (VobSub and PGS) with VobSub palette extradata.</summary>
-    public async Task<List<ImageSubtitleStream>> GetImageSubtitleStreamsAsync(string mediaPath, CancellationToken cancellationToken)
+    /// <summary>
+    /// One probe pass over the file header: lists image-based subtitle streams (with VobSub palette extradata,
+    /// title, and disposition) and collects words from the file's textual tags (every stream title, container
+    /// format tags, and chapter titles), so proper nouns embedded in the file can be protected from spell
+    /// correction. The per-stream packet reads for OCR are a separate pass (<see cref="GetPacketsAsync"/>).
+    /// </summary>
+    public async Task<FfprobeHeader> ReadHeaderAsync(string mediaPath, CancellationToken cancellationToken)
     {
         var json = await RunFfprobeAsync(
-            $"-v error -select_streams s -show_streams -show_data -of json \"{mediaPath}\"",
+            $"-v error -show_streams -show_format -show_chapters -show_data -of json \"{mediaPath}\"",
             cancellationToken).ConfigureAwait(false);
 
-        var result = new List<ImageSubtitleStream>();
+        var streams = new List<ImageSubtitleStream>();
+        var words = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using var doc = JsonDocument.Parse(json);
-        if (!doc.RootElement.TryGetProperty("streams", out var streams))
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("streams", out var streamArray))
         {
-            return result;
+            foreach (var stream in streamArray.EnumerateArray())
+            {
+                string? language = null;
+                string? title = null;
+                if (stream.TryGetProperty("tags", out var tags))
+                {
+                    if (tags.TryGetProperty("language", out var lang))
+                    {
+                        language = lang.GetString();
+                    }
+
+                    if (tags.TryGetProperty("title", out var t))
+                    {
+                        title = t.GetString();
+                        AddWords(words, title);
+                    }
+                }
+
+                var codec = stream.TryGetProperty("codec_name", out var c) ? c.GetString() : null;
+                if (codec is null || !ImageSubtitleCodecs.TryGetValue(codec, out var format))
+                {
+                    continue;
+                }
+
+                var forced = false;
+                var hearingImpaired = false;
+                var commentary = false;
+                if (stream.TryGetProperty("disposition", out var disp))
+                {
+                    forced = disp.TryGetProperty("forced", out var f) && f.GetInt32() == 1;
+                    hearingImpaired = disp.TryGetProperty("hearing_impaired", out var h) && h.GetInt32() == 1;
+                    commentary = disp.TryGetProperty("comment", out var cm) && cm.GetInt32() == 1;
+                }
+
+                string? extradataText = null;
+                if (format == SubtitleFormat.DvdSub && stream.TryGetProperty("extradata", out var extradata))
+                {
+                    var bytes = ParseHexDump(extradata.GetString());
+                    extradataText = Encoding.ASCII.GetString(bytes);
+                }
+
+                streams.Add(new ImageSubtitleStream
+                {
+                    StreamIndex = stream.GetProperty("index").GetInt32(),
+                    Format = format,
+                    Language = language,
+                    Title = title,
+                    Forced = forced,
+                    HearingImpaired = hearingImpaired,
+                    Commentary = commentary,
+                    ExtradataText = extradataText,
+                });
+            }
         }
 
-        foreach (var stream in streams.EnumerateArray())
+        if (root.TryGetProperty("format", out var formatElement) && formatElement.TryGetProperty("tags", out var formatTags))
         {
-            var codec = stream.TryGetProperty("codec_name", out var c) ? c.GetString() : null;
-            if (codec is null || !ImageSubtitleCodecs.TryGetValue(codec, out var format))
+            AddContentTagWords(words, formatTags);
+        }
+
+        if (root.TryGetProperty("chapters", out var chapters))
+        {
+            foreach (var chapter in chapters.EnumerateArray())
+            {
+                if (chapter.TryGetProperty("tags", out var chapterTags) && chapterTags.TryGetProperty("title", out var chapterTitle))
+                {
+                    AddWords(words, chapterTitle.GetString());
+                }
+            }
+        }
+
+        return new FfprobeHeader(streams, words);
+    }
+
+    private static void AddContentTagWords(HashSet<string> words, JsonElement tags)
+    {
+        foreach (var tag in tags.EnumerateObject())
+        {
+            var name = tag.Name.ToLowerInvariant();
+
+            // Skip technical/encoder tags; their values are not content proper nouns.
+            if (name is "encoder" or "encoder_options" or "creation_time" or "duration" or "language"
+                    or "filename" or "mimetype" or "bps"
+                || name.StartsWith('_') || name.Contains("statistics", StringComparison.Ordinal))
             {
                 continue;
             }
 
-            string? language = null;
-            if (stream.TryGetProperty("tags", out var tags) && tags.TryGetProperty("language", out var lang))
-            {
-                language = lang.GetString();
-            }
+            AddWords(words, tag.Value.ValueKind == JsonValueKind.String ? tag.Value.GetString() : null);
+        }
+    }
 
-            string? extradataText = null;
-            if (format == SubtitleFormat.DvdSub && stream.TryGetProperty("extradata", out var extradata))
-            {
-                var bytes = ParseHexDump(extradata.GetString());
-                extradataText = Encoding.ASCII.GetString(bytes);
-            }
-
-            result.Add(new ImageSubtitleStream
-            {
-                StreamIndex = stream.GetProperty("index").GetInt32(),
-                Format = format,
-                Language = language,
-                ExtradataText = extradataText,
-            });
+    private static void AddWords(HashSet<string> words, string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
         }
 
-        return result;
+        foreach (Match m in MetadataWord().Matches(text))
+        {
+            words.Add(m.Value);
+        }
     }
 
     /// <summary>Reads all packets (assembled SPUs) for one subtitle stream.</summary>

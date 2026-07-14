@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+
 namespace SubtitleOcr.Core.Ocr;
 
 /// <summary>
@@ -12,16 +14,16 @@ public static class LanguageCodes
     public const string Undetermined = "und";
 
     // ISO 639-2/B -> /T, differing codes only.
-    private static readonly Dictionary<string, string> BibliographicToTerminological = new(StringComparer.Ordinal)
+    private static readonly FrozenDictionary<string, string> BibliographicToTerminological = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["alb"] = "sqi", ["arm"] = "hye", ["baq"] = "eus", ["bur"] = "mya", ["chi"] = "zho",
         ["cze"] = "ces", ["dut"] = "nld", ["fre"] = "fra", ["geo"] = "kat", ["ger"] = "deu",
         ["gre"] = "ell", ["ice"] = "isl", ["mac"] = "mkd", ["mao"] = "mri", ["may"] = "msa",
         ["per"] = "fas", ["rum"] = "ron", ["slo"] = "slk", ["tib"] = "bod", ["wel"] = "cym",
-    };
+    }.ToFrozenDictionary(StringComparer.Ordinal);
 
-    // ISO 639-1 -> 639-2/T for the languages that realistically show up on optical media.
-    private static readonly Dictionary<string, string> TwoLetterToTerminological = new(StringComparer.Ordinal)
+    // ISO 639-1 -> 639-2/T for the languages that realistically show up in video media files.
+    private static readonly FrozenDictionary<string, string> TwoLetterToTerminological = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["en"] = "eng", ["fr"] = "fra", ["de"] = "deu", ["es"] = "spa", ["it"] = "ita",
         ["pt"] = "por", ["nl"] = "nld", ["sv"] = "swe", ["no"] = "nor", ["da"] = "dan",
@@ -32,12 +34,12 @@ public static class LanguageCodes
         ["ko"] = "kor", ["th"] = "tha", ["hi"] = "hin", ["is"] = "isl", ["et"] = "est",
         ["lv"] = "lav", ["lt"] = "lit", ["sl"] = "slv", ["ca"] = "cat", ["eu"] = "eus",
         ["gl"] = "glg",
-    };
+    }.ToFrozenDictionary(StringComparer.Ordinal);
 
     // Non-Latin-script languages (639-2/T). Bias toward inclusion: the Latin path only adds
     // English l/I heuristics, so a false "Latin" corrupts non-Latin text, while a false
     // "non-Latin" merely skips a cosmetic fix. Serbian (srp) is treated as Cyrillic for that reason.
-    private static readonly HashSet<string> NonLatinScript = new(StringComparer.Ordinal)
+    private static readonly FrozenSet<string> NonLatinScript = new HashSet<string>(StringComparer.Ordinal)
     {
         "ell",                                                          // Greek
         "rus", "bul", "ukr", "srp", "mkd", "bel", "kaz", "kir", "tgk", "mon", // Cyrillic
@@ -47,7 +49,13 @@ public static class LanguageCodes
         "tha", "lao", "khm", "mya",                                     // SE Asian
         "hin", "ben", "tam", "tel", "kan", "mal", "guj", "pan", "ori", "sin", // Indic
         "hye", "kat", "amh", "tir",                                     // Armenian, Georgian, Ethiopic
-    };
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    private static readonly FrozenDictionary<string, string> TerminologicalToTwoLetter =
+        TwoLetterToTerminological.ToFrozenDictionary(kv => kv.Value, kv => kv.Key, StringComparer.Ordinal);
+
+    /// <summary>Maps a language to its ISO 639-1 two-letter code, or null when there is no mapping.</summary>
+    public static string? ToTwoLetter(string? code) => TerminologicalToTwoLetter.GetValueOrDefault(Normalize(code));
 
     /// <summary>Folds any supported form to a canonical lowercase 639-2/T code; null/empty become "und".</summary>
     public static string Normalize(string? code)

@@ -14,6 +14,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Instance = this;
         NOcrDatabaseFolder = Path.Combine(DataFolderPath, "nocr");
         Directory.CreateDirectory(NOcrDatabaseFolder);
+        DictionaryFolder = Path.Combine(DataFolderPath, "dictionaries");
+        Directory.CreateDirectory(DictionaryFolder);
     }
 
     public static Plugin? Instance { get; private set; }
@@ -24,6 +26,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// may also reference a bare file name resolved against this folder.
     /// </summary>
     public string NOcrDatabaseFolder { get; }
+
+    /// <summary>Drop-in folder for Hunspell dictionaries. A pair <c>{language}.dic</c> / <c>{language}.aff</c>
+    /// here (e.g. <c>eng.dic</c>) enables dictionary spell-correction for that language.</summary>
+    public string DictionaryFolder { get; }
 
     /// <summary>Per-file probe cache backing <see cref="ScheduledTasks.OcrSubtitlesTask"/>.</summary>
     public string ScanStatePath => Path.Combine(DataFolderPath, "scan-state.json");

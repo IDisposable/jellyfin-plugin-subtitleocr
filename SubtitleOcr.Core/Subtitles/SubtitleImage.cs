@@ -15,4 +15,8 @@ public sealed class SubtitleImage
     public TimeSpan End { get; init; }
 
     public bool Forced { get; init; }
+
+    /// <summary>Normalized vertical centre on screen (0 top, 1 bottom); ~0.9 for normal bottom placement,
+    /// lower for a positioned subtitle. Defaults to bottom for sources without position (VobSub).</summary>
+    public double VerticalCenter { get; init; } = 0.9;
 }

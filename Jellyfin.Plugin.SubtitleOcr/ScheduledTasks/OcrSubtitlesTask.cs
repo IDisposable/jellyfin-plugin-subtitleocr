@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.SubtitleOcr.ScheduledTasks;
 
 public class OcrSubtitlesTask : IScheduledTask
 {
-    private static readonly IReadOnlySet<string> EmptyLanguages = new HashSet<string>();
+    private static readonly IReadOnlySet<string> EmptyStringSet = new HashSet<string>();
 
     private readonly ILibraryManager _libraryManager;
     private readonly IMediaEncoder _mediaEncoder;
@@ -58,7 +58,21 @@ public class OcrSubtitlesTask : IScheduledTask
 
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
+        var plugin = Plugin.Instance;
+        if (plugin is null)
+        {
+            _logger.LogError("Subtitle OCR plugin is not initialized; skipping run.");
+            return;
+        }
+
+        using var run = _pipeline.TryBeginRun();
+        if (run is null)
+        {
+            _logger.LogInformation("Another Subtitle OCR task is already running; skipping.");
+            return;
+        }
+
+        var config = plugin.Configuration;
 
         var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
@@ -69,19 +83,17 @@ public class OcrSubtitlesTask : IScheduledTask
 
         _logger.LogInformation("Scanning {Count} Movie/Episode items for image-based subtitles (ffprobe)", items.Count);
 
-        var scanStatePath = Plugin.Instance?.ScanStatePath;
-        var store = scanStatePath is null ? null : new ScanStateStore(scanStatePath, _logger);
-        var state = store?.Load() ?? new Dictionary<Guid, ScanRecord>();
+        var store = new ScanStateStore(plugin.ScanStatePath, _logger);
+        var state = store.Load();
 
-        var logPath = Plugin.Instance?.ExtractionLogPath;
-        var extractionLog = logPath is null ? null : new ExtractionLog(logPath, _logger);
-        var extractions = extractionLog?.Load() ?? new List<ExtractionRecord>();
+        var extractionLog = new ExtractionLog(plugin.ExtractionLogPath, _logger);
+        var extractions = extractionLog.Load();
 
         var force = config.ForceRescan;
         if (force)
         {
             config.ForceRescan = false;
-            Plugin.Instance?.UpdateConfiguration(config);
+            plugin.UpdateConfiguration(config);
             _logger.LogInformation("Force rescan: probing every file and clearing the flag");
         }
 
@@ -118,7 +130,7 @@ public class OcrSubtitlesTask : IScheduledTask
                     .Where(s => s.Type == MediaStreamType.Subtitle && s.IsTextSubtitleStream && !string.IsNullOrEmpty(s.Language))
                     .Select(s => s.Language!)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase)
-                : EmptyLanguages;
+                : EmptyStringSet;
 
             candidates.Add(new Candidate(item, textLanguages, fileTicks));
         }
@@ -129,6 +141,7 @@ public class OcrSubtitlesTask : IScheduledTask
 
         var totalWritten = 0;
         var itemsWithImageStreams = 0;
+        var positionedFiles = 0;
         var census = new Dictionary<string, StreamTally>(StringComparer.OrdinalIgnoreCase);
         var sinceSave = 0;
 
@@ -147,10 +160,25 @@ public class OcrSubtitlesTask : IScheduledTask
 
                 try
                 {
-                    var result = await _pipeline
-                        .ProcessAsync(item.Path, _mediaEncoder.ProbePath, config, Plugin.Instance?.NOcrDatabaseFolder, candidates[i].TextLanguages, itemProgress, cancellationToken)
-                        .ConfigureAwait(false);
+                    var protectedWords = config.SpellCheck ? MetadataWords.From(item, _libraryManager) : EmptyStringSet;
+                    var result = await _pipeline.ProcessAsync(
+                        new SubtitleOcrRequest
+                        {
+                            MediaPath = item.Path,
+                            FfprobePath = _mediaEncoder.ProbePath,
+                            Config = config,
+                            NOcrFolder = plugin.NOcrDatabaseFolder,
+                            DictionaryFolder = plugin.DictionaryFolder,
+                            TextSubtitleLanguages = candidates[i].TextLanguages,
+                            ProtectedWords = protectedWords,
+                            Progress = itemProgress,
+                        },
+                        cancellationToken).ConfigureAwait(false);
                     totalWritten += result.SrtFilesWritten;
+                    if (result.PositionedSubtitles)
+                    {
+                        positionedFiles++;
+                    }
 
                     if (result.ImageStreams.Count > 0)
                     {
@@ -222,21 +250,21 @@ public class OcrSubtitlesTask : IScheduledTask
 
                 if (++sinceSave >= 100)
                 {
-                    store?.Save(state);
-                    extractionLog?.Save(extractions);
+                    store.Save(state);
+                    extractionLog.Save(extractions);
                     sinceSave = 0;
                 }
             }
         }
         finally
         {
-            store?.Save(state);
-            extractionLog?.Save(extractions);
+            store.Save(state);
+            extractionLog.Save(extractions);
         }
 
         _logger.LogInformation(
-            "Subtitle OCR complete: {Written} SRT files written; {WithImages} of {Probed} items had image-based subtitle streams",
-            totalWritten, itemsWithImageStreams, candidates.Count);
+            "Subtitle OCR complete: {Written} files written; {WithImages} of {Probed} items had image-based subtitle streams; {Positioned} items had positioned subtitles (would benefit from ASS)",
+            totalWritten, itemsWithImageStreams, candidates.Count, positionedFiles);
 
         if (_logger.IsEnabled(LogLevel.Debug))
         {
