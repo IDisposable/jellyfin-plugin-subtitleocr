@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/IDisposable/jellyfin-plugin-subtitleocr/main/assets/social.png",
         "versions": [
             {
+                "version": "10.11.3.1",
+                "changelog": "The list of extracted subtitle files is now a dashboard page of its own, in the main menu, instead of a pop-up inside the plugin settings; the settings button still opens it. The page gained a \"Reprocess all\" button that starts the reprocess task directly, shows its progress, and reloads the list when it finishes, so re-OCRing everything with the current settings no longer means a trip to Scheduled Tasks.\n",
+                "targetAbi": "10.11.0.0",
+                "sourceUrl": "https://github.com/IDisposable/jellyfin-plugin-subtitleocr/releases/download/v10.11.3.1/subtitle-ocr_10.11.3.1.zip",
+                "checksum": "34d6955925b32611788a76ea333c5134",
+                "timestamp": "2026-07-14T23:24:03Z"
+            },
+            {
                 "version": "10.11.3.0",
                 "changelog": "Output format is now selectable: SRT, ASS, or Auto, which decides per track and writes ASS only when a cue sits away from the bottom of the screen (PGS carries the position), so an ordinary track keeps the universally supported format. OCR text is spell-checked with Hunspell, protecting Title-case proper nouns and words drawn from the item's Jellyfin metadata (title, overview, series, cast and character names) so show and character names survive. Subtitle Edit OCR fix replace lists are applied when present; dictionaries and fix lists download on demand and re-download once older than a configurable age. A track with an undetermined language now has one detected from its OCR text and is named accordingly, and the track title, forced, hearing-impaired, and commentary flags appear in the file name so commentary tracks are identifiable. A hearing-impaired track is recognized from its own text when the source flags nothing, which is the norm for a remuxed disc. New OCR corrections cover misread apostrophes in contractions, mid-word capital X, V, and I, optional ellipsis folding, and bogus italic runs around single characters and punctuation. An unread glyph now costs nothing when matching a word against the dictionary, so \"batt\u25a1e\" resolves to \"battle\" and a damaged name can be restored from the item's metadata. A new \"Reprocess extracted subtitles\" task re-OCRs every logged file from its source with the current settings. Each file is probed with a single ffprobe pass rather than two, and only one OCR or reprocess task runs at a time.\n",
                 "targetAbi": "10.11.0.0",
