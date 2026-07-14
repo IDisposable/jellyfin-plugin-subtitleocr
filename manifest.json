@@ -2,11 +2,19 @@
     {
         "guid": "b7a9c2e4-5d31-4f8a-9c06-3e2d1a8b4f70",
         "name": "Subtitle OCR",
-        "description": "Converts embedded image-based subtitle tracks (VobSub/DVD and PGS/Blu-ray) to external SRT files using nOCR pattern matching. Pure managed code: no Tesseract and no native dependencies. The .nocr database format is interchange-compatible with Subtitle Edit, so databases trained or corrected in its GUI drop straight in. A scheduled task scans your Movie and Episode libraries and writes an SRT beside each image-based track.\n",
-        "overview": "OCR image-based DVD and Blu-ray subtitles to SRT",
+        "description": "Converts embedded image-based subtitle tracks (VobSub/DVD and PGS/Blu-ray) to external SRT or ASS files using nOCR pattern matching. Pure managed code: no Tesseract and no native dependencies. The .nocr database format is interchange-compatible with Subtitle Edit, so databases trained or corrected in its GUI drop straight in. A scheduled task scans your Movie and Episode libraries and writes a subtitle file beside each image-based track. OCR text is optionally spell-checked with Hunspell and corrected with Subtitle Edit's OCR fix lists, both fetched on demand.\n",
+        "overview": "OCR image-based DVD and Blu-ray subtitles to SRT or ASS",
         "owner": "IDisposable",
         "category": "Subtitles",
         "versions": [
+            {
+                "version": "10.11.3.0",
+                "changelog": "Output format is now selectable: SRT, ASS, or Auto, which decides per track and writes ASS only when a cue sits away from the bottom of the screen (PGS carries the position), so an ordinary track keeps the universally supported format. OCR text is spell-checked with Hunspell, protecting Title-case proper nouns and words drawn from the item's Jellyfin metadata (title, overview, series, cast and character names) so show and character names survive. Subtitle Edit OCR fix replace lists are applied when present; dictionaries and fix lists download on demand and re-download once older than a configurable age. A track with an undetermined language now has one detected from its OCR text and is named accordingly, and the track title, forced, hearing-impaired, and commentary flags appear in the file name so commentary tracks are identifiable. A hearing-impaired track is recognized from its own text when the source flags nothing, which is the norm for a remuxed disc. New OCR corrections cover misread apostrophes in contractions, mid-word capital X, V, and I, optional ellipsis folding, and bogus italic runs around single characters and punctuation. An unread glyph now costs nothing when matching a word against the dictionary, so \"batt\u25a1e\" resolves to \"battle\" and a damaged name can be restored from the item's metadata. A new \"Reprocess extracted subtitles\" task re-OCRs every logged file from its source with the current settings. Each file is probed with a single ffprobe pass rather than two, and only one OCR or reprocess task runs at a time.\n",
+                "targetAbi": "10.11.0.0",
+                "sourceUrl": "https://github.com/IDisposable/jellyfin-plugin-subtitleocr/releases/download/v10.11.3.0/subtitle-ocr_10.11.3.0.zip",
+                "checksum": "ee65926c87d3ccaf42cab405282104ac",
+                "timestamp": "2026-07-14T22:38:56Z"
+            },
             {
                 "version": "10.11.2.0",
                 "changelog": "Detect image-based subtitles by probing every Movie and Episode with ffprobe, since Jellyfin does not store PGS/VobSub streams in its metadata. A per-file cache skips files that are unchanged and were probed within a configurable window, with a force-rescan option. Word spacing now scales with subtitle line height, fixing spaces inserted between every letter on HD Blu-ray text. New options: extract only selected languages, discard a track whose dropped-event ratio is too high (removing any stale SRT), and a filename tag ({name}.{lang}.OCR.srt, shown as the subtitle title) so the plugin only ever overwrites or deletes its own output. A config-page modal lists every extracted file with a link to its movie or episode. The scheduled task now sits under its own category.\n",
