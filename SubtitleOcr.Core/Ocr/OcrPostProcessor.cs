@@ -22,6 +22,9 @@ public static partial class OcrPostProcessor
     // to the candidate, so it cannot tell them apart and may pick either case.
     private const string SizeTwins = "cosuvwxz";
 
+    /// <summary>The l-to-I rules hold for English only.</summary>
+    private const string English = "eng";
+
     [GeneratedRegex(@"\p{L}[\p{L}']*")]
     private static partial Regex Word();
 
@@ -107,21 +110,27 @@ public static partial class OcrPostProcessor
     });
 
     /// <summary>
-    /// Cleans up OCR output. The l/I, X/V, case, and apostrophe fixes are Latin-script heuristics and would
-    /// corrupt other scripts, so <paramref name="latinScript"/> gates them (pass
-    /// <see cref="LanguageCodes.IsLatinScript"/>); the rest always runs. <paramref name="unknownCharacter"/>
-    /// is the placeholder emitted for unmatched glyphs.
+    /// Cleans up OCR output. Most fixes are Latin-script heuristics and would corrupt another script, and a
+    /// couple are English facts that would corrupt another Latin language, so
+    /// <paramref name="normalizedLanguage"/> (a code from <see cref="LanguageCodes.Normalize"/>) picks which
+    /// run. <paramref name="unknownCharacter"/> is the placeholder emitted for unmatched glyphs.
     /// </summary>
-    public static string Fix(string text, bool latinScript, char unknownCharacter, bool normalizeEllipsis)
+    public static string Fix(string text, string normalizedLanguage, char unknownCharacter, bool normalizeEllipsis)
     {
-        if (latinScript)
+        if (LanguageCodes.IsLatinScript(normalizedLanguage))
         {
             // Before the mid-word rules, which would otherwise read a downcased twin as real lowercase.
             text = RestoreAllCaps(text);
 
-            // A lone or sentence-initial "l" is "I"; a pipe is a segmentation artifact of one.
-            text = LoneLowercaseL().Replace(text, "I");
-            text = SentenceInitialL().Replace(text, "I");
+            // "A lone l is I" is true of English only. French elides the article ("l'un") and starts lines
+            // with it ("la", "les"), so these would rewrite every one of them.
+            if (string.Equals(normalizedLanguage, English, StringComparison.OrdinalIgnoreCase))
+            {
+                text = LoneLowercaseL().Replace(text, "I");
+                text = SentenceInitialL().Replace(text, "I");
+            }
+
+            // Pipes never occur in dialogue; they are a segmentation artifact of I or l.
             text = Pipe().Replace(text, "I");
 
             text = MidWordX().Replace(text, "x");

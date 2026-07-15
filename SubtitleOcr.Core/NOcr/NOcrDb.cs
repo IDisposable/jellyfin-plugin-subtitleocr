@@ -127,6 +127,48 @@ public sealed class NOcrDb
         return null;
     }
 
+    /// <summary>Largest blob run any expanded glyph spans; 0 when the database has none.</summary>
+    public int MaxExpandCount => _maxExpandCount ??= OcrCharactersExpanded.Count == 0
+        ? 0
+        : OcrCharactersExpanded.Max(c => c.ExpandCount);
+
+    private int? _maxExpandCount;
+
+    /// <summary>
+    /// Matches a merged run of <paramref name="expandCount"/> blobs against the glyphs trained to span that
+    /// many. The segmenter splits these apart (a double quote into two marks, "ø" into three), so they are
+    /// unmatchable one blob at a time.
+    /// </summary>
+    public NOcrChar? GetExpandedMatch(SubBitmap bitmap, int topMargin, int expandCount, bool deepSeek, int maxWrongPixels)
+    {
+        var heightToWidthPercent = bitmap.Height * 100.0 / bitmap.Width;
+        foreach (var pass in MatchPasses)
+        {
+            if (pass.RequireDeepSeek && !deepSeek)
+            {
+                continue;
+            }
+
+            if (maxWrongPixels < pass.MinAllowance)
+            {
+                continue;
+            }
+
+            var errorsAllowed = pass.ErrorsAllowed(maxWrongPixels);
+            foreach (var oc in OcrCharactersExpanded)
+            {
+                if (oc.ExpandCount == expandCount &&
+                    PassFilter(bitmap, heightToWidthPercent, oc, topMargin, pass) &&
+                    IsMatch(bitmap, oc, errorsAllowed))
+                {
+                    return oc;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private NOcrChar? GetExactMatch(SubBitmap bitmap, int topMargin)
     {
         foreach (var oc in OcrCharacters)

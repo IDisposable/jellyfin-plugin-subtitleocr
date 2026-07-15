@@ -58,8 +58,9 @@ public sealed class NOcrEngine
         var unknown = 0;
         var inItalic = false;
 
-        foreach (var item in items)
+        for (var i = 0; i < items.Count; i++)
         {
+            var item = items[i];
             if (item.NewLine && sb.Length > 0)
             {
                 CloseItalic(sb, ref inItalic);
@@ -70,7 +71,18 @@ public sealed class NOcrEngine
                 sb.Append(' ');
             }
 
-            var match = _db.GetMatch(item.Bitmap, item.TopMargin, _options.DeepSeek, _options.MaxWrongPixels);
+            // A glyph the segmenter split apart (a quote into two marks, "ø" into three) can only match as
+            // the whole run, so try the widest run first and fall back to this blob alone.
+            var match = MatchExpanded(items, i, out var consumed);
+            if (match is null)
+            {
+                match = _db.GetMatch(item.Bitmap, item.TopMargin, _options.DeepSeek, _options.MaxWrongPixels);
+            }
+            else
+            {
+                i += consumed - 1;
+            }
+
             if (match is null)
             {
                 unknown++;
@@ -98,6 +110,78 @@ public sealed class NOcrEngine
             GlyphCount = items.Count,
             UnknownCount = unknown,
         };
+    }
+
+    /// <summary>Merges the next N blobs and matches them as one glyph, widest run first. Only blobs on the
+    /// same text line are merged; a run that matches nothing leaves the caller to match this blob alone.</summary>
+    private NOcrChar? MatchExpanded(List<SplitterItem> items, int index, out int consumed)
+    {
+        consumed = 0;
+        for (var n = Math.Min(_db.MaxExpandCount, items.Count - index); n >= 2; n--)
+        {
+            var spansLine = false;
+            for (var k = 1; k < n; k++)
+            {
+                if (items[index + k].NewLine)
+                {
+                    spansLine = true;
+                    break;
+                }
+            }
+
+            if (spansLine)
+            {
+                continue;
+            }
+
+            var merged = Merge(items, index, n, out var topMargin);
+            var match = _db.GetExpandedMatch(merged, topMargin, n, _options.DeepSeek, _options.MaxWrongPixels);
+            if (match is not null)
+            {
+                consumed = n;
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Rebuilds the run as one bitmap from each blob's position in the source image; only the alpha
+    /// channel is read downstream, so the copy carries no colour.</summary>
+    private static SubBitmap Merge(List<SplitterItem> items, int index, int count, out int topMargin)
+    {
+        var left = items[index].X;
+        var right = left;
+        var top = items[index].TopMargin;
+        var bottom = top;
+        for (var k = 0; k < count; k++)
+        {
+            var it = items[index + k];
+            right = Math.Max(right, it.X + it.Bitmap.Width);
+            top = Math.Min(top, it.TopMargin);
+            bottom = Math.Max(bottom, it.TopMargin + it.Bitmap.Height);
+        }
+
+        topMargin = top;
+        var merged = new SubBitmap(right - left, bottom - top);
+        for (var k = 0; k < count; k++)
+        {
+            var it = items[index + k];
+            var offsetX = it.X - left;
+            var offsetY = it.TopMargin - top;
+            for (var y = 0; y < it.Bitmap.Height; y++)
+            {
+                for (var x = 0; x < it.Bitmap.Width; x++)
+                {
+                    if (it.Bitmap.GetAlpha(x, y) > 150)
+                    {
+                        merged.SetPixel(offsetX + x, offsetY + y, 255, 255, 255, 255);
+                    }
+                }
+            }
+        }
+
+        return merged;
     }
 
     private static bool HasLetterOrDigit(string text)

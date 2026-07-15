@@ -193,7 +193,6 @@ public class SubtitleOcrPipeline
             }
 
             var engine = new NOcrEngine(GetDatabase(config, normalizedLanguage, nOcrFolder), options);
-            var latinScript = LanguageCodes.IsLatinScript(normalizedLanguage);
 
             var packets = await reader.GetPacketsAsync(mediaPath, stream.StreamIndex, cancellationToken).ConfigureAwait(false);
             if (packets.Count == 0)
@@ -240,7 +239,7 @@ public class SubtitleOcrPipeline
                                 {
                                     Start = image.Start,
                                     End = image.End,
-                                    Text = OcrPostProcessor.Fix(result.Text, latinScript, config.Placeholder, config.NormalizeEllipsis),
+                                    Text = OcrPostProcessor.Fix(result.Text, normalizedLanguage, config.Placeholder, config.NormalizeEllipsis),
                                     VerticalCenter = image.VerticalCenter,
                                 };
                             }
