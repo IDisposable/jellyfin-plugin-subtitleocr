@@ -42,6 +42,16 @@ public sealed class NOcrResult
 /// <summary>Segments a binarized subtitle bitmap and matches each glyph against the database.</summary>
 public sealed class NOcrEngine
 {
+    /// <summary>Upper and lower forms are one shape at two sizes; only height tells them apart.</summary>
+    private const string SizeTwins = "cosuvwxz";
+
+    /// <summary>Lowercase letters that sit within the x-height and are not twins, so a match on one is a
+    /// reliable sample of it.</summary>
+    private const string XHeightLetters = "aemnr";
+
+    /// <summary>Letters that reach the cap line (capitals and ascenders), none of them twins.</summary>
+    private const string TallLetters = "bdfhklt" + "ABDEFGHIJKLMNPQRTY";
+
     private readonly NOcrDb _db;
     private readonly NOcrEngineOptions _options;
 
@@ -54,22 +64,12 @@ public sealed class NOcrEngine
     public NOcrResult Recognize(SubBitmap binarized)
     {
         var items = ImageSplitter.Split(binarized);
-        var sb = new StringBuilder();
+        var matched = new List<Matched>(items.Count);
         var unknown = 0;
-        var inItalic = false;
 
         for (var i = 0; i < items.Count; i++)
         {
             var item = items[i];
-            if (item.NewLine && sb.Length > 0)
-            {
-                CloseItalic(sb, ref inItalic);
-                sb.Append('\n');
-            }
-            else if (item.GapBefore >= Math.Max(_options.SpaceMinGap, (int)Math.Round(_options.SpaceGapFactor * item.LineHeight)))
-            {
-                sb.Append(' ');
-            }
 
             // A glyph the segmenter split apart (a quote into two marks, "ø" into three) can only match as
             // the whole run, so try the widest run first and fall back to this blob alone.
@@ -86,7 +86,72 @@ public sealed class NOcrEngine
             if (match is null)
             {
                 unknown++;
+            }
+
+            matched.Add(new Matched(item, match));
+        }
+
+        var text = CaseByLineMetrics(matched);
+        return new NOcrResult
+        {
+            Text = text,
+            GlyphCount = items.Count,
+            UnknownCount = unknown,
+        };
+    }
+
+    /// <summary>
+    /// Reads the case of the size twins off the image's own letters. A trained glyph is scaled to the
+    /// candidate before matching, so "w" and "W" are one shape and the matcher can only guess; but letters
+    /// whose two forms are different shapes ("a", "n", "d", "k") are never ambiguous, and they measure this
+    /// font's x-height and cap height. A twin is then whichever it stands closer to. Nothing is changed when
+    /// the image does not show both heights, as in an all-caps sound cue.
+    /// </summary>
+    private string CaseByLineMetrics(List<Matched> matched)
+    {
+        var xHeights = new List<int>();
+        var capHeights = new List<int>();
+        foreach (var m in matched)
+        {
+            if (m.Match is null || m.Match.Text.Length != 1)
+            {
+                continue;
+            }
+
+            var c = m.Match.Text[0];
+            if (XHeightLetters.Contains(c, StringComparison.Ordinal))
+            {
+                xHeights.Add(m.Item.Bitmap.Height);
+            }
+            else if (TallLetters.Contains(c, StringComparison.Ordinal))
+            {
+                capHeights.Add(m.Item.Bitmap.Height);
+            }
+        }
+
+        var xHeight = Median(xHeights);
+        var capHeight = Median(capHeights);
+        var canJudge = xHeight > 0 && capHeight > 0 && capHeight > xHeight;
+
+        var sb = new StringBuilder();
+        var inItalic = false;
+        foreach (var m in matched)
+        {
+            if (m.Item.NewLine && sb.Length > 0)
+            {
                 CloseItalic(sb, ref inItalic);
+                sb.Append('\n');
+            }
+            else if (m.Item.GapBefore >= Math.Max(_options.SpaceMinGap, (int)Math.Round(_options.SpaceGapFactor * m.Item.LineHeight)))
+            {
+                sb.Append(' ');
+            }
+
+            var match = m.Match;
+            if (match is null)
+            {
+                // An unread glyph carries no italic signal, so it inherits the run rather than ending it:
+                // closing here turns "<i>WOMAN</i>" into "<i>WO</i>□<i>N</i>" for one bad glyph.
                 sb.Append(_options.UnknownCharacter);
                 continue;
             }
@@ -99,18 +164,33 @@ public sealed class NOcrEngine
                 inItalic = match.Italic;
             }
 
-            sb.Append(match.Text);
+            var text = match.Text;
+            if (canJudge && text.Length == 1 && SizeTwins.Contains(char.ToLowerInvariant(text[0]), StringComparison.Ordinal))
+            {
+                var height = m.Item.Bitmap.Height;
+                var upper = Math.Abs(height - capHeight) < Math.Abs(height - xHeight);
+                text = upper ? text.ToUpperInvariant() : text.ToLowerInvariant();
+            }
+
+            sb.Append(text);
         }
 
         CloseItalic(sb, ref inItalic);
-
-        return new NOcrResult
-        {
-            Text = sb.ToString(),
-            GlyphCount = items.Count,
-            UnknownCount = unknown,
-        };
+        return sb.ToString();
     }
+
+    private static int Median(List<int> values)
+    {
+        if (values.Count == 0)
+        {
+            return 0;
+        }
+
+        values.Sort();
+        return values[values.Count / 2];
+    }
+
+    private readonly record struct Matched(SplitterItem Item, NOcrChar? Match);
 
     /// <summary>Merges the next N blobs and matches them as one glyph, widest run first. Only blobs on the
     /// same text line are merged; a run that matches nothing leaves the caller to match this blob alone.</summary>
