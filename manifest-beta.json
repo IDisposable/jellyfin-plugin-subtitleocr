@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/IDisposable/jellyfin-plugin-subtitleocr/main/assets/social.png",
         "versions": [
             {
+                "version": "10.11.3.4",
+                "changelog": "Loads on every 10.11 server: the plugin is built against 10.11.0, the target ABI it declares, so it no longer requires the assemblies of a later patch release.\n",
+                "targetAbi": "10.11.0.0",
+                "sourceUrl": "https://github.com/IDisposable/jellyfin-plugin-subtitleocr/releases/download/v10.11.3.4/subtitle-ocr_10.11.3.4.zip",
+                "checksum": "3af44dd3e138a5fc56ef687b44e36f2a",
+                "timestamp": "2026-07-15T19:48:36Z"
+            },
+            {
                 "version": "10.11.3.3",
                 "changelog": "The dashboard menu carries both plugin pages: \"Subtitle OCR\" for the settings and \"Extracted Subtitles\" for the list of extracted files, which also has a \"Reprocess all\" button that starts the reprocess task, shows its progress, and reloads the list when it finishes, plus a gear button that opens the settings. The plugin's Settings button opens the settings page.\n",
                 "targetAbi": "10.11.0.0",
