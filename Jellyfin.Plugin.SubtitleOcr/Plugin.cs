@@ -49,17 +49,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public IEnumerable<PluginPageInfo> GetPages()
     {
+        // Both pages appear in the dashboard menu. The plugin's Settings button opens the first page
+        // flagged EnableInMainMenu, so settings carries the flag and comes first.
         return new[]
         {
             new PluginPageInfo
             {
                 Name = Name,
                 EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
+                EnableInMainMenu = true,
             },
-
-            // Its own dashboard menu entry, since Jellyfin has no way to add one to the Scheduled
-            // Tasks page. Outside Configuration/ and with only EnableInMainMenu set, matching
-            // jellyfin-plugin-playbackreporting: MenuSection/MenuIcon stranded the settings page.
             new PluginPageInfo
             {
                 Name = ExtractionsPageName,

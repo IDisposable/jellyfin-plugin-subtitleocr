@@ -4,7 +4,7 @@
     <title>Extracted Subtitles</title>
 </head>
 <body>
-<div id="SubtitleOcrExtractionsPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button">
+<div id="SubtitleOcrExtractionsPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,paper-icon-button-light">
     <div data-role="content">
         <div class="content-primary">
             <div style="display:flex; align-items:center; gap:0.5em; margin-bottom:1em;">
@@ -17,6 +17,9 @@
                 </button>
                 <button id="ClearExtractions" is="emby-button" type="button" class="raised emby-button">
                     <span>Clear log</span>
+                </button>
+                <button id="OpenSettings" is="paper-icon-button-light" type="button" class="paper-icon-button-light" title="Settings">
+                    <span class="material-icons settings" aria-hidden="true"></span>
                 </button>
             </div>
             <div class="fieldDescription" style="margin-bottom:1em;">
@@ -134,6 +137,11 @@
                             }
                         });
                 });
+            });
+
+            // Must match Plugin.Name.
+            page.querySelector('#OpenSettings').addEventListener('click', function () {
+                Dashboard.navigate('configurationpage?name=' + encodeURIComponent('Subtitle OCR'));
             });
 
             page.querySelector('#RefreshExtractions').addEventListener('click', load);

@@ -1,7 +1,7 @@
 ---
 name: "Subtitle OCR"
 guid: "b7a9c2e4-5d31-4f8a-9c06-3e2d1a8b4f70"
-version: "10.11.3.2"
+version: "10.11.3.3"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 overview: "OCR image-based DVD and Blu-ray subtitles to SRT or ASS"
@@ -20,6 +20,7 @@ artifacts:
   - "SubtitleOcr.Core.dll"
   - "WeCantSpell.Hunspell.dll"
 changelog: >
-  Fixes 10.11.3.1 stranding you on the extracted-files list: opening it from the plugin settings left
-  no way back to the settings page. The list is now reached from its "Extracted Subtitles" entry in
-  the dashboard menu only, and the settings page no longer links to it.
+  The dashboard menu carries both plugin pages: "Subtitle OCR" for the settings and "Extracted
+  Subtitles" for the list of extracted files, which also has a "Reprocess all" button that starts the
+  reprocess task, shows its progress, and reloads the list when it finishes, plus a gear button that
+  opens the settings. The plugin's Settings button opens the settings page.
