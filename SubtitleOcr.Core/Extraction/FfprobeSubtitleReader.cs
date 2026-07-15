@@ -55,14 +55,15 @@ public sealed partial class FfprobeSubtitleReader
     [GeneratedRegex(@"\p{L}{2,}")]
     private static partial Regex MetadataWord();
 
-    private static readonly FrozenDictionary<string, SubtitleFormat> ImageSubtitleCodecs = new Dictionary<string, SubtitleFormat>(StringComparer.OrdinalIgnoreCase)
+    // Keyed Ordinal: the lookup lowercases ffprobe's codec_name first.
+    private static readonly FrozenDictionary<string, SubtitleFormat> ImageSubtitleCodecs = new Dictionary<string, SubtitleFormat>(StringComparer.Ordinal)
     {
         ["dvd_subtitle"] = SubtitleFormat.DvdSub,
         ["dvdsub"] = SubtitleFormat.DvdSub,
         ["vobsub"] = SubtitleFormat.DvdSub,
         ["hdmv_pgs_subtitle"] = SubtitleFormat.Pgs,
         ["pgssub"] = SubtitleFormat.Pgs,
-    }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+    }.ToFrozenDictionary(StringComparer.Ordinal);
 
     private readonly string _ffprobePath;
 
@@ -106,7 +107,7 @@ public sealed partial class FfprobeSubtitleReader
                 }
 
                 var codec = stream.TryGetProperty("codec_name", out var c) ? c.GetString() : null;
-                if (codec is null || !ImageSubtitleCodecs.TryGetValue(codec, out var format))
+                if (codec is null || !ImageSubtitleCodecs.TryGetValue(codec.ToLowerInvariant(), out var format))
                 {
                     continue;
                 }

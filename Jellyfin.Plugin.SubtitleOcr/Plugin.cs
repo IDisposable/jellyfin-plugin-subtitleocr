@@ -16,6 +16,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Directory.CreateDirectory(NOcrDatabaseFolder);
         DictionaryFolder = Path.Combine(DataFolderPath, "dictionaries");
         Directory.CreateDirectory(DictionaryFolder);
+        TempFolder = applicationPaths.TempDirectory;
     }
 
     public static Plugin? Instance { get; private set; }
@@ -30,6 +31,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>Drop-in folder for Hunspell dictionaries. A pair <c>{language}.dic</c> / <c>{language}.aff</c>
     /// here (e.g. <c>eng.dic</c>) enables dictionary spell-correction for that language.</summary>
     public string DictionaryFolder { get; }
+
+    /// <summary>The host's temp folder, for subtitle payloads pulled out of a container. Jellyfin owns its
+    /// lifecycle and it sits on the configured data volume, not on a RAM-backed system default.</summary>
+    public string TempFolder { get; }
 
     /// <summary>Per-file probe cache backing <see cref="ScheduledTasks.OcrSubtitlesTask"/>.</summary>
     public string ScanStatePath => Path.Combine(DataFolderPath, "scan-state.json");

@@ -1,5 +1,6 @@
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.SubtitleOcr.Pipeline;
+using SubtitleOcr.Core.Ocr;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
@@ -128,8 +129,8 @@ public class OcrSubtitlesTask : IScheduledTask
             IReadOnlySet<string> textLanguages = config.SkipLanguagesWithTextSubtitle
                 ? item.GetMediaStreams()
                     .Where(s => s.Type == MediaStreamType.Subtitle && s.IsTextSubtitleStream && !string.IsNullOrEmpty(s.Language))
-                    .Select(s => s.Language!)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                    .Select(s => LanguageCodes.Normalize(s.Language))
+                    .ToHashSet(StringComparer.Ordinal)
                 : EmptyStringSet;
 
             candidates.Add(new Candidate(item, textLanguages, fileTicks));
@@ -142,7 +143,7 @@ public class OcrSubtitlesTask : IScheduledTask
         var totalWritten = 0;
         var itemsWithImageStreams = 0;
         var positionedFiles = 0;
-        var census = new Dictionary<string, StreamTally>(StringComparer.OrdinalIgnoreCase);
+        var census = new Dictionary<string, StreamTally>(StringComparer.Ordinal);
         var sinceSave = 0;
 
         try
@@ -166,6 +167,8 @@ public class OcrSubtitlesTask : IScheduledTask
                         {
                             MediaPath = item.Path,
                             FfprobePath = _mediaEncoder.ProbePath,
+                        FfmpegPath = _mediaEncoder.EncoderPath,
+                        TempFolder = plugin.TempFolder,
                             Config = config,
                             NOcrFolder = plugin.NOcrDatabaseFolder,
                             DictionaryFolder = plugin.DictionaryFolder,
@@ -186,8 +189,7 @@ public class OcrSubtitlesTask : IScheduledTask
                         var isEpisode = item.GetBaseItemKind() == BaseItemKind.Episode;
                         foreach (var stream in result.ImageStreams)
                         {
-                            var language = string.IsNullOrEmpty(stream.Language) ? "und" : stream.Language;
-                            var key = $"{stream.Format} [{language}]";
+                            var key = $"{stream.Format} [{LanguageCodes.Normalize(stream.Language)}]";
                             if (!census.TryGetValue(key, out var tally))
                             {
                                 tally = new StreamTally();

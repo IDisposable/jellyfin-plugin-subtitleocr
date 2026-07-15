@@ -148,6 +148,8 @@ public class ReprocessSubtitlesTask : IScheduledTask
             {
                 MediaPath = item.Path!,
                 FfprobePath = _mediaEncoder.ProbePath,
+                        FfmpegPath = _mediaEncoder.EncoderPath,
+                        TempFolder = plugin.TempFolder,
                 Config = config,
                 NOcrFolder = plugin.NOcrDatabaseFolder,
                 DictionaryFolder = plugin.DictionaryFolder,

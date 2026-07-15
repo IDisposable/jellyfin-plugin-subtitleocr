@@ -123,9 +123,17 @@ public class SubtitleOcrPipeline
             languageCounts[lang] = languageCounts.GetValueOrDefault(lang) + 1;
         }
 
-        // Streams run concurrently: each one spends most of its time in ffprobe, so overlapping a stream's
-        // I/O with another's recognition is what actually shortens the run. The image loop inside splits the
-        // remaining budget, so a single-stream file still uses every core.
+        // One pass over the container for every stream at once, rather than a full demux per stream.
+        using var extraction = await SubtitleStreamExtractor.ExtractAsync(
+            request.FfprobePath,
+            request.FfmpegPath,
+            mediaPath,
+            request.TempFolder,
+            streams.ConvertAll(s => s.StreamIndex),
+            cancellationToken).ConfigureAwait(false);
+
+        // Streams run concurrently: recognition of one overlaps the slicing of another. The image loop
+        // inside splits the remaining budget, so a single-stream file still uses every core.
         var streamDegree = Math.Min(streams.Count, ParallelismOf(config));
         var imageDegree = Math.Max(1, ParallelismOf(config) / streamDegree);
         var streamsDone = 0;
@@ -195,7 +203,7 @@ public class SubtitleOcrPipeline
 
             var engine = new NOcrEngine(GetDatabase(config, normalizedLanguage, nOcrFolder), options);
 
-            var packets = await reader.GetPacketsAsync(mediaPath, stream.StreamIndex, cancellationToken).ConfigureAwait(false);
+            var packets = extraction.Read(stream.StreamIndex);
             if (packets.Count == 0)
             {
                 return;
@@ -667,6 +675,12 @@ public sealed record SubtitleOcrRequest
     public required string MediaPath { get; init; }
 
     public required string FfprobePath { get; init; }
+
+    /// <summary>ffmpeg, for copying subtitle payloads out raw (IMediaEncoder.EncoderPath).</summary>
+    public required string FfmpegPath { get; init; }
+
+    /// <summary>Where extracted payloads go (Plugin.TempFolder).</summary>
+    public required string TempFolder { get; init; }
 
     public required PluginConfiguration Config { get; init; }
 
