@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/IDisposable/jellyfin-plugin-subtitleocr/main/assets/social.png",
         "versions": [
             {
+                "version": "10.11.3.5",
+                "changelog": "Runs roughly three times faster: every subtitle track is now pulled out of a file in one pass instead of one full pass per track, and tracks recognize in parallel (see Max parallelism, which leaves half the cores to playback). Recognition picks the best matching glyph rather than the first one the database lists, which fixes words like \"cLocK TlcKlNG\" at the source and stops italics flickering on and off mid-word, and glyphs the splitter breaks apart (a double quote, an o-slash) now match. A track the database cannot really read is discarded instead of shipped: with only the bundled Latin database, a non-English track is often 10-25 percent unreadable, and those files were being written as if they were fine. Spell-check no longer rewrites names, which cost you ADAMA as ASAMA and TYROL as TYRO; it also sees the whole series cast now, not just an episode's guest stars. The l-to-I fixes only run for English, which stops French losing every elided article. New: hearing-impaired (SDH) tracks are recognized from their own text, the unknown-glyph mark is now a box rather than an asterisk (dialogue uses asterisks), and the extracted-files list moved to its own dashboard page with a Reprocess button.\n",
+                "targetAbi": "10.11.0.0",
+                "sourceUrl": "https://github.com/IDisposable/jellyfin-plugin-subtitleocr/releases/download/v10.11.3.5/subtitle-ocr_10.11.3.5.zip",
+                "checksum": "e9fd56cc600680c47b4aa663403deee2",
+                "timestamp": "2026-07-15T19:56:58Z"
+            },
+            {
                 "version": "10.11.3.4",
                 "changelog": "Loads on every 10.11 server: the plugin is built against 10.11.0, the target ABI it declares, so it no longer requires the assemblies of a later patch release.\n",
                 "targetAbi": "10.11.0.0",
