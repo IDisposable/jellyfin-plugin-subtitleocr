@@ -124,7 +124,7 @@ public static partial class OcrPostProcessor
 
             // "A lone l is I" is true of English only. French elides the article ("l'un") and starts lines
             // with it ("la", "les"), so these would rewrite every one of them.
-            if (string.Equals(normalizedLanguage, English, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(normalizedLanguage, English, StringComparison.Ordinal))
             {
                 text = LoneLowercaseL().Replace(text, "I");
                 text = SentenceInitialL().Replace(text, "I");

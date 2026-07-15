@@ -29,9 +29,10 @@ public class SubtitleOcrPipeline
     private readonly IHttpClientFactory _httpClientFactory;
     // One task runs at a time, but its streams run concurrently, so every read and populate takes the
     // dictionary's own lock. Loading happens outside the lock: a race costs a duplicate load, not a tear.
+    // Language keys are LanguageCodes.Normalize output, which is always lowercase, so Ordinal is enough.
     private readonly Dictionary<string, NOcrDb> _dbCache = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, ISpellCorrector> _spellCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, OcrFixReplaceList> _ocrFixCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ISpellCorrector> _spellCache = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, OcrFixReplaceList> _ocrFixCache = new(StringComparer.Ordinal);
     private int _running;
 
     public SubtitleOcrPipeline(ILogger<SubtitleOcrPipeline> logger, IHttpClientFactory httpClientFactory)
@@ -81,12 +82,12 @@ public class SubtitleOcrPipeline
         // normalized image-stream language (eng/en/... collapse to one code). Empty (the shared
         // allocation-free singleton) when the option is off, so Contains is always false.
         IReadOnlySet<string> coveredLanguages = config.SkipLanguagesWithTextSubtitle && textSubtitleLanguages.Count > 0
-            ? textSubtitleLanguages.Select(LanguageCodes.Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ? textSubtitleLanguages.Select(LanguageCodes.Normalize).ToHashSet(StringComparer.Ordinal)
             : FrozenSet<string>.Empty;
 
         // Allowlist: OCR only the selected languages (normalized). Empty means extract all.
         IReadOnlySet<string> allowedLanguages = config.Languages is { Length: > 0 }
-            ? config.Languages.Select(LanguageCodes.Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ? config.Languages.Select(LanguageCodes.Normalize).ToHashSet(StringComparer.Ordinal)
             : FrozenSet<string>.Empty;
 
         // Protect proper nouns from spell-correction: the item's metadata words plus the file's own tags
@@ -115,7 +116,7 @@ public class SubtitleOcrPipeline
         // A language with several tracks keeps the source stream number in each file name; a lone track gets
         // the clean {base}.{lang}.srt. Keyed by the normalized code, which is what names the file: "dut" and
         // "nld" tracks would otherwise both claim {base}.nld.srt.
-        var languageCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var languageCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var s in streams)
         {
             var lang = LanguageCodes.Normalize(string.IsNullOrEmpty(s.Language) ? LanguageCodes.Undetermined : s.Language);

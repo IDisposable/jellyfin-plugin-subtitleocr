@@ -114,13 +114,38 @@ public sealed class NOcrDb
             }
 
             var errorsAllowed = pass.ErrorsAllowed(maxWrongPixels);
+            NOcrChar? best = null;
+            var bestErrors = int.MaxValue;
+            var bestFit = int.MaxValue;
+
             foreach (var oc in OcrCharacters)
             {
-                if (PassFilter(bitmap, heightToWidthPercent, oc, topMargin, pass) &&
-                    IsMatch(bitmap, oc, errorsAllowed))
+                if (!PassFilter(bitmap, heightToWidthPercent, oc, topMargin, pass))
                 {
-                    return oc;
+                    continue;
                 }
+
+                var errors = MatchErrors(bitmap, oc, errorsAllowed);
+                if (errors < 0)
+                {
+                    continue;
+                }
+
+                // Fewest wrong pixels wins; ties go to the closest fit. A trained glyph is scaled to the
+                // candidate before matching, so "C" and "c" are one shape and only their size tells them
+                // apart. Database order used to decide this.
+                var fit = Math.Abs(oc.MarginTop - topMargin) + Math.Abs(oc.Height - bitmap.Height) + Math.Abs(oc.Width - bitmap.Width);
+                if (errors < bestErrors || (errors == bestErrors && fit < bestFit))
+                {
+                    best = oc;
+                    bestErrors = errors;
+                    bestFit = fit;
+                }
+            }
+
+            if (best is not null)
+            {
+                return best;
             }
         }
 
@@ -221,11 +246,15 @@ public sealed class NOcrDb
     /// Tests glyph lines against the bitmap alpha channel: foreground points must land on
     /// text (alpha &gt; 150), background points must not; up to errorsAllowed misses.
     /// </summary>
-    public static bool IsMatch(SubBitmap bitmap, NOcrChar oc, int errorsAllowed)
+    public static bool IsMatch(SubBitmap bitmap, NOcrChar oc, int errorsAllowed) =>
+        MatchErrors(bitmap, oc, errorsAllowed) >= 0;
+
+    /// <summary>Wrong pixels for this glyph, or -1 once the budget is blown (it stops counting there).</summary>
+    private static int MatchErrors(SubBitmap bitmap, NOcrChar oc, int errorsAllowed)
     {
         if (oc.LinesForeground.Count + oc.LinesBackground.Count < MinLinesForSingleMatch)
         {
-            return false;
+            return -1;
         }
 
         var errors = 0;
@@ -239,7 +268,7 @@ public sealed class NOcrDb
                 if ((uint)point.X < (uint)width && (uint)point.Y < (uint)height &&
                     bitmap.GetAlpha(point.X, point.Y) <= 150 && ++errors > errorsAllowed)
                 {
-                    return false;
+                    return -1;
                 }
             }
         }
@@ -251,12 +280,12 @@ public sealed class NOcrDb
                 if ((uint)point.X < (uint)width && (uint)point.Y < (uint)height &&
                     bitmap.GetAlpha(point.X, point.Y) > 150 && ++errors > errorsAllowed)
                 {
-                    return false;
+                    return -1;
                 }
             }
         }
 
-        return true;
+        return errors;
     }
 
     private enum SensitivityFilter
