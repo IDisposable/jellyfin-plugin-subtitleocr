@@ -18,6 +18,13 @@ public static partial class OcrPostProcessor
     [GeneratedRegex(@"\|")]
     private static partial Regex Pipe();
 
+    // Letters whose upper and lower forms are one shape at two sizes. The matcher scales a trained glyph
+    // to the candidate, so it cannot tell them apart and may pick either case.
+    private const string SizeTwins = "cosuvwxz";
+
+    [GeneratedRegex(@"\p{L}[\p{L}']*")]
+    private static partial Regex Word();
+
     // A capital X/V/I after a lowercase letter is the lowercase glyph, same shape but larger.
     [GeneratedRegex(@"(?<=\p{Ll})X")]
     private static partial Regex MidWordX();
@@ -66,7 +73,41 @@ public static partial class OcrPostProcessor
     }
 
     /// <summary>
-    /// Cleans up OCR output. The l/I, X/V, pipe, and apostrophe fixes are Latin-script heuristics and would
+    /// A word carrying two or more capitals whose every lowercase letter is a size twin is an all-caps word
+    /// the matcher downcased ("cLocK" is "CLOCK"). A bar glyph among capitals is "I", never "l".
+    /// </summary>
+    private static string RestoreAllCaps(string text) => Word().Replace(text, static m =>
+    {
+        var word = m.Value;
+        var capitals = 0;
+        foreach (var c in word)
+        {
+            if (char.IsUpper(c))
+            {
+                capitals++;
+            }
+            else if (char.IsLower(c) && c != 'l' && !SizeTwins.Contains(c, StringComparison.Ordinal))
+            {
+                return word;
+            }
+        }
+
+        if (capitals < 2)
+        {
+            return word;
+        }
+
+        return string.Create(word.Length, word, static (span, w) =>
+        {
+            for (var i = 0; i < w.Length; i++)
+            {
+                span[i] = w[i] == 'l' ? 'I' : char.ToUpperInvariant(w[i]);
+            }
+        });
+    });
+
+    /// <summary>
+    /// Cleans up OCR output. The l/I, X/V, case, and apostrophe fixes are Latin-script heuristics and would
     /// corrupt other scripts, so <paramref name="latinScript"/> gates them (pass
     /// <see cref="LanguageCodes.IsLatinScript"/>); the rest always runs. <paramref name="unknownCharacter"/>
     /// is the placeholder emitted for unmatched glyphs.
@@ -75,6 +116,9 @@ public static partial class OcrPostProcessor
     {
         if (latinScript)
         {
+            // Before the mid-word rules, which would otherwise read a downcased twin as real lowercase.
+            text = RestoreAllCaps(text);
+
             // A lone or sentence-initial "l" is "I"; a pipe is a segmentation artifact of one.
             text = LoneLowercaseL().Replace(text, "I");
             text = SentenceInitialL().Replace(text, "I");

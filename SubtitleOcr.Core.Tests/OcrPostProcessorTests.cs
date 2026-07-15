@@ -59,6 +59,30 @@ public class OcrPostProcessorTests
         Assert.Equal("Да…", OcrPostProcessor.Fix("Да...", latinScript: false, Placeholder, normalizeEllipsis: true));
     }
 
+    // Upper and lower forms of these letters are one shape at two sizes, so the matcher may downcase them
+    // in an all-caps word. A bar glyph among capitals is "I".
+    [Theory]
+    [InlineData("(cLocK TlcKlNG)", "(CLOCK TICKING)")]
+    [InlineData("TlcKlNG", "TICKING")]
+    [InlineData("(EXPLOSIONS)", "(EXPLOSIONS)")]
+    public void Fix_DowncasedAllCapsWord_IsRestored(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, latinScript: true, Placeholder, normalizeEllipsis: false));
+    }
+
+    // Genuine mixed case must survive: a letter that is not a size twin proves the word is not all-caps,
+    // and one capital is not enough to call it.
+    [Theory]
+    [InlineData("Galactica")]
+    [InlineData("McDonald")]
+    [InlineData("iPhone")]
+    [InlineData("Ox")]
+    [InlineData("I love you")]
+    public void Fix_GenuineMixedCase_IsLeftAlone(string input)
+    {
+        Assert.Equal(input, OcrPostProcessor.Fix(input, latinScript: true, Placeholder, normalizeEllipsis: false));
+    }
+
     // A one-character run is a misclassification, and it splits the word for every stage after it.
     [Theory]
     [InlineData("<i>Q</i>uietly", "Quietly")]

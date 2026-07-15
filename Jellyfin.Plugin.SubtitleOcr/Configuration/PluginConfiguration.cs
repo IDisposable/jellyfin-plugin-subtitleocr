@@ -81,6 +81,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Enables the slowest, widest matching pass.</summary>
     public bool DeepSeek { get; set; } = true;
 
+    /// <summary>Images recognized at once. 0 uses half the cores, leaving the rest for playback.</summary>
+    public int MaxParallelism { get; set; } = 0;
+
     /// <summary>Dark-text-on-light-background discs need inverted binarization.</summary>
     public bool InvertLuma { get; set; } = false;
 

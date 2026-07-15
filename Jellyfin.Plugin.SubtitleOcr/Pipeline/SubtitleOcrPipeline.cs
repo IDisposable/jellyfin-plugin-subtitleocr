@@ -27,7 +27,8 @@ public class SubtitleOcrPipeline
 
     private readonly ILogger<SubtitleOcrPipeline> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
-    // Plain dictionaries: the run flag below guarantees only one task uses the pipeline at a time.
+    // One task runs at a time, but its streams run concurrently, so every read and populate takes the
+    // dictionary's own lock. Loading happens outside the lock: a race costs a duplicate load, not a tear.
     private readonly Dictionary<string, NOcrDb> _dbCache = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ISpellCorrector> _spellCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, OcrFixReplaceList> _ocrFixCache = new(StringComparer.OrdinalIgnoreCase);
@@ -121,10 +122,21 @@ public class SubtitleOcrPipeline
             languageCounts[lang] = languageCounts.GetValueOrDefault(lang) + 1;
         }
 
-        for (var si = 0; si < streams.Count; si++)
+        // Streams run concurrently: each one spends most of its time in ffprobe, so overlapping a stream's
+        // I/O with another's recognition is what actually shortens the run. The image loop inside splits the
+        // remaining budget, so a single-stream file still uses every core.
+        var streamDegree = Math.Min(streams.Count, ParallelismOf(config));
+        var imageDegree = Math.Max(1, ParallelismOf(config) / streamDegree);
+        var streamsDone = 0;
+
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, streams.Count),
+            new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = streamDegree },
+            async (si, streamToken) =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            progress?.Report((double)si / streams.Count);
+
+
+
 
             var stream = streams[si];
             var language = string.IsNullOrEmpty(stream.Language) ? LanguageCodes.Undetermined : stream.Language;
@@ -133,7 +145,7 @@ public class SubtitleOcrPipeline
             if (allowedLanguages.Count > 0 && !allowedLanguages.Contains(normalizedLanguage))
             {
                 _logger.LogDebug("Language {Language} not selected, skipping image stream {Index}", normalizedLanguage, stream.StreamIndex);
-                continue;
+                return;
             }
 
             // Skip only on a confident language match: an untagged image track (undetermined) could be a
@@ -144,7 +156,7 @@ public class SubtitleOcrPipeline
                 _logger.LogInformation(
                     "Text subtitle already present for {Language}, skipping image stream {Index}",
                     normalizedLanguage, stream.StreamIndex);
-                continue;
+                return;
             }
 
             // Identifies the track in Jellyfin: its title, else "Commentary" from the disposition.
@@ -176,7 +188,7 @@ public class SubtitleOcrPipeline
                 if (File.Exists(earlyPath) || File.Exists(earlySdhPath))
                 {
                     _logger.LogDebug("Subtitle file exists, skipping: {Path}", earlyPath);
-                    continue;
+                    return;
                 }
             }
 
@@ -186,54 +198,65 @@ public class SubtitleOcrPipeline
             var packets = await reader.GetPacketsAsync(mediaPath, stream.StreamIndex, cancellationToken).ConfigureAwait(false);
             if (packets.Count == 0)
             {
-                continue;
+                return;
             }
 
             var images = stream.Format == SubtitleFormat.Pgs
                 ? PgsTrackDecoder.Decode(packets)
                 : VobSubTrackDecoder.Decode(packets, SpuPalette.FromExtradataText(stream.ExtradataText));
 
-            var events = new List<SubtitleEvent>(images.Count);
-            var dropped = 0;
-
-            for (var ii = 0; ii < images.Count; ii++)
+            // A subtitle sitting above the bottom region (a sign or top caption) loses its placement in SRT.
+            if (images.Exists(i => i.VerticalCenter < AssPositionThreshold))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                progress?.Report((si + (double)ii / images.Count) / streams.Count);
+                Volatile.Write(ref positioned, true);
+            }
 
-                var image = images[ii];
+            // The matcher only reads the database, so images recognize in parallel. Results stay indexed by
+            // image, which keeps the cue order without sorting threads against each other.
+            var recognized = new SubtitleEvent?[images.Count];
+            var dropped = 0;
+            var done = 0;
 
-                // A subtitle sitting above the bottom region (a sign or top caption) loses its placement in SRT.
-                if (image.VerticalCenter < AssPositionThreshold)
+            Parallel.For(
+                0,
+                images.Count,
+                new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = imageDegree },
+                ii =>
                 {
-                    positioned = true;
-                }
+                    var image = images[ii];
+                    if (!config.SkipForcedOnly || !image.Forced)
+                    {
+                        var binary = image.Bitmap.Binarize(invertLuma: config.InvertLuma);
+                        var result = engine.Recognize(binary);
+                        if (result.GlyphCount > 0)
+                        {
+                            if (result.UnknownCount > result.GlyphCount * config.MaxUnknownRatio)
+                            {
+                                Interlocked.Increment(ref dropped);
+                            }
+                            else
+                            {
+                                recognized[ii] = new SubtitleEvent
+                                {
+                                    Start = image.Start,
+                                    End = image.End,
+                                    Text = OcrPostProcessor.Fix(result.Text, latinScript, config.Placeholder, config.NormalizeEllipsis),
+                                    VerticalCenter = image.VerticalCenter,
+                                };
+                            }
+                        }
+                    }
 
-                if (config.SkipForcedOnly && image.Forced)
-                {
-                    continue;
-                }
-
-                var binary = image.Bitmap.Binarize(invertLuma: config.InvertLuma);
-                var result = engine.Recognize(binary);
-                if (result.GlyphCount == 0)
-                {
-                    continue;
-                }
-
-                if (result.UnknownCount > result.GlyphCount * config.MaxUnknownRatio)
-                {
-                    dropped++;
-                    continue;
-                }
-
-                events.Add(new SubtitleEvent
-                {
-                    Start = image.Start,
-                    End = image.End,
-                    Text = OcrPostProcessor.Fix(result.Text, latinScript, config.Placeholder, config.NormalizeEllipsis),
-                    VerticalCenter = image.VerticalCenter,
+                    progress?.Report((si + (double)Interlocked.Increment(ref done) / images.Count) / streams.Count);
                 });
+
+            var events = new List<SubtitleEvent>(images.Count);
+            foreach (var e in recognized)
+            {
+                if (e is not null)
+                {
+                    events.Add(e);
+                }
             }
 
             if (events.Count == 0)
@@ -241,7 +264,7 @@ public class SubtitleOcrPipeline
                 _logger.LogWarning(
                     "Stream {Index} of {Path} produced no usable events ({Dropped} dropped); check InvertLuma or train the database",
                     stream.StreamIndex, mediaPath, dropped);
-                continue;
+                return;
             }
 
             // Label an undetermined track with the language detected from its recognized text.
@@ -259,7 +282,7 @@ public class SubtitleOcrPipeline
                         _logger.LogInformation(
                             "Text subtitle already present for detected {Language}, discarding image stream {Index}",
                             effectiveNormalized, stream.StreamIndex);
-                        continue;
+                        return;
                     }
                 }
             }
@@ -288,7 +311,7 @@ public class SubtitleOcrPipeline
             if (File.Exists(srtFilePath) && !config.OverwriteExisting)
             {
                 _logger.LogDebug("SRT file exists, skipping: {Path}", srtFilePath);
-                continue;
+                return;
             }
 
             var totalEvents = events.Count + dropped;
@@ -302,7 +325,7 @@ public class SubtitleOcrPipeline
                     File.Delete(srtFilePath);
                 }
 
-                continue;
+                return;
             }
 
             // Apply the OCR fix list then spell-correct, both with the effective (possibly detected) language.
@@ -317,12 +340,16 @@ public class SubtitleOcrPipeline
             SrtWriter.NormalizeTimings(events);
             var content = useAss ? AssWriter.Serialize(events) : SrtWriter.Serialize(events);
             await File.WriteAllTextAsync(srtFilePath, content, cancellationToken).ConfigureAwait(false);
-            writtenSubtitles.Add(new WrittenSubtitle(srtFilePath, effectiveNormalized, events.Count));
+            lock (writtenSubtitles)
+            {
+                writtenSubtitles.Add(new WrittenSubtitle(srtFilePath, effectiveNormalized, events.Count));
+            }
 
             _logger.LogInformation(
                 "Wrote {Count} events ({Dropped} dropped) to {Path}",
                 events.Count, dropped, srtFilePath);
-        }
+            progress?.Report((double)Interlocked.Increment(ref streamsDone) / streams.Count);
+        }).ConfigureAwait(false);
 
         progress?.Report(1.0);
         return new SubtitleOcrResult(writtenSubtitles, streams) { PositionedSubtitles = positioned };
@@ -337,9 +364,12 @@ public class SubtitleOcrPipeline
             return NullSpellCorrector.Instance;
         }
 
-        if (_spellCache.TryGetValue(normalizedLanguage, out var cached))
+        lock (_spellCache)
         {
-            return cached;
+            if (_spellCache.TryGetValue(normalizedLanguage, out var cached))
+            {
+                return cached;
+            }
         }
 
         var dicPath = Path.Combine(dictionaryFolder, $"{normalizedLanguage}.dic");
@@ -362,7 +392,15 @@ public class SubtitleOcrPipeline
             }
         }
 
-        _spellCache[normalizedLanguage] = corrector;
+        lock (_spellCache)
+        {
+            if (_spellCache.TryGetValue(normalizedLanguage, out var raced))
+            {
+                return raced;
+            }
+
+            _spellCache[normalizedLanguage] = corrector;
+        }
         return corrector;
     }
 
@@ -375,9 +413,12 @@ public class SubtitleOcrPipeline
             return OcrFixReplaceList.Empty;
         }
 
-        if (_ocrFixCache.TryGetValue(normalizedLanguage, out var cached))
+        lock (_ocrFixCache)
         {
-            return cached;
+            if (_ocrFixCache.TryGetValue(normalizedLanguage, out var cached))
+            {
+                return cached;
+            }
         }
 
         var path = Path.Combine(dictionaryFolder, $"{normalizedLanguage}_OCRFixReplaceList.xml");
@@ -393,7 +434,15 @@ public class SubtitleOcrPipeline
             _logger.LogInformation("Loaded OCR fix list for {Language}: {Path}", normalizedLanguage, path);
         }
 
-        _ocrFixCache[normalizedLanguage] = list;
+        lock (_ocrFixCache)
+        {
+            if (_ocrFixCache.TryGetValue(normalizedLanguage, out var raced))
+            {
+                return raced;
+            }
+
+            _ocrFixCache[normalizedLanguage] = list;
+        }
         return list;
     }
 
@@ -459,13 +508,24 @@ public class SubtitleOcrPipeline
     {
         var path = ResolveDatabasePath(config, normalizedLanguage, nOcrFolder);
         var key = path ?? EmbeddedLatinKey;
-        if (_dbCache.TryGetValue(key, out var cached))
+        lock (_dbCache)
         {
-            return cached;
+            if (_dbCache.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
         }
 
         var db = path is null ? NOcrDb.LoadEmbeddedLatin() : NOcrDb.LoadFile(path);
-        _dbCache[key] = db;
+        lock (_dbCache)
+        {
+            if (_dbCache.TryGetValue(key, out var raced))
+            {
+                return raced;
+            }
+
+            _dbCache[key] = db;
+        }
         _logger.LogInformation(
             "Loaded nOCR database for {Language} ({Source}): {Count} glyphs",
             normalizedLanguage, path ?? "bundled Latin", db.TotalCharacterCount);
@@ -497,6 +557,11 @@ public class SubtitleOcrPipeline
     /// <summary>A rooted path is used as-is; a bare name is resolved against the drop-in folder.</summary>
     private static string Resolve(string path, string nOcrFolder) =>
         Path.IsPathRooted(path) ? path : Path.Combine(nOcrFolder, path);
+
+    /// <summary>Images to recognize at once. The default leaves half the cores to the server, which is
+    /// transcoding for someone while this background task runs.</summary>
+    private static int ParallelismOf(PluginConfiguration config) =>
+        config.MaxParallelism > 0 ? config.MaxParallelism : Math.Max(1, Environment.ProcessorCount / 2);
 
     /// <summary>
     /// Builds {base}.{lang}[.{descriptor}][.forced][.sdh][.{tag}][.{index}].srt. The tag (empty to omit) marks
