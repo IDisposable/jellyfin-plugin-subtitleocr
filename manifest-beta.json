@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/IDisposable/jellyfin-plugin-subtitleocr/main/assets/social.png",
         "versions": [
             {
+                "version": "10.11.3.3",
+                "changelog": "The dashboard menu carries both plugin pages: \"Subtitle OCR\" for the settings and \"Extracted Subtitles\" for the list of extracted files, which also has a \"Reprocess all\" button that starts the reprocess task, shows its progress, and reloads the list when it finishes, plus a gear button that opens the settings. The plugin's Settings button opens the settings page.\n",
+                "targetAbi": "10.11.0.0",
+                "sourceUrl": "https://github.com/IDisposable/jellyfin-plugin-subtitleocr/releases/download/v10.11.3.3/subtitle-ocr_10.11.3.3.zip",
+                "checksum": "0fa7e9285f106e2f5fa70fc77c0f2e60",
+                "timestamp": "2026-07-15T02:04:11Z"
+            },
+            {
                 "version": "10.11.3.2",
                 "changelog": "Fixes 10.11.3.1 stranding you on the extracted-files list: opening it from the plugin settings left no way back to the settings page. The list is now reached from its \"Extracted Subtitles\" entry in the dashboard menu only, and the settings page no longer links to it.\n",
                 "targetAbi": "10.11.0.0",
