@@ -73,7 +73,7 @@ public sealed partial class FfprobeSubtitleReader
     /// One probe pass over the file header: lists image-based subtitle streams (with VobSub palette extradata,
     /// title, and disposition) and collects words from the file's textual tags (every stream title, container
     /// format tags, and chapter titles), so proper nouns embedded in the file can be protected from spell
-    /// correction. The per-stream packet reads for OCR are a separate pass (<see cref="GetPacketsAsync"/>).
+    /// correction. Payloads are a separate pass (<see cref="SubtitleStreamExtractor"/>).
     /// </summary>
     public async Task<FfprobeHeader> ReadHeaderAsync(string mediaPath, CancellationToken cancellationToken)
     {
@@ -191,55 +191,6 @@ public sealed partial class FfprobeSubtitleReader
         {
             words.Add(m.Value);
         }
-    }
-
-    /// <summary>Reads all packets (assembled SPUs) for one subtitle stream.</summary>
-    public async Task<List<SubtitlePacket>> GetPacketsAsync(string mediaPath, int streamIndex, CancellationToken cancellationToken)
-    {
-        var json = await RunFfprobeAsync(
-            $"-v error -select_streams {streamIndex} -show_packets -show_data -of json \"{mediaPath}\"",
-            cancellationToken).ConfigureAwait(false);
-
-        var packets = new List<SubtitlePacket>();
-        using var doc = JsonDocument.Parse(json);
-        if (!doc.RootElement.TryGetProperty("packets", out var packetArray))
-        {
-            return packets;
-        }
-
-        foreach (var packet in packetArray.EnumerateArray())
-        {
-            if (!packet.TryGetProperty("data", out var data))
-            {
-                continue;
-            }
-
-            var bytes = ParseHexDump(data.GetString());
-            if (bytes.Length < 6)
-            {
-                continue;
-            }
-
-            packets.Add(new SubtitlePacket
-            {
-                Data = bytes,
-                Pts = ReadSeconds(packet, "pts_time") ?? ReadSeconds(packet, "dts_time") ?? TimeSpan.Zero,
-                Duration = ReadSeconds(packet, "duration_time"),
-            });
-        }
-
-        return packets;
-    }
-
-    private static TimeSpan? ReadSeconds(JsonElement packet, string property)
-    {
-        if (packet.TryGetProperty(property, out var value) &&
-            double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
-        {
-            return TimeSpan.FromSeconds(seconds);
-        }
-
-        return null;
     }
 
     /// <summary>
