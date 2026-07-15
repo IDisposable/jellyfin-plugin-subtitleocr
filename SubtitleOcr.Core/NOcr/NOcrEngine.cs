@@ -83,6 +83,23 @@ public sealed class NOcrEngine
                 i += consumed - 1;
             }
 
+            if (match is null && TrySplit(item, out var left, out var right))
+            {
+                matched.Add(new Matched(item, left));
+                matched.Add(new Matched(
+                    new SplitterItem
+                    {
+                        Bitmap = item.Bitmap,
+                        X = item.X,
+                        TopMargin = item.TopMargin,
+                        GapBefore = 0,
+                        LineHeight = item.LineHeight,
+                        NewLine = false,
+                    },
+                    right));
+                continue;
+            }
+
             if (match is null)
             {
                 unknown++;
@@ -191,6 +208,63 @@ public sealed class NOcrEngine
     }
 
     private readonly record struct Matched(SplitterItem Item, NOcrChar? Match);
+
+    /// <summary>
+    /// A blob that matches nothing and is wide for its line is usually two kerned letters the splitter could
+    /// not part on an empty column ("re" reading as one shape, "rn" as none). Cutting it at each interior
+    /// column and matching both halves recovers them; only a cut where both sides match is taken, so a
+    /// genuinely unreadable glyph still comes out as the placeholder. Runs only on a failed match.
+    /// </summary>
+    private bool TrySplit(SplitterItem item, out NOcrChar? left, out NOcrChar? right)
+    {
+        left = null;
+        right = null;
+        var bitmap = item.Bitmap;
+
+        // Two letters of this line's text are about this wide; one is not.
+        if (bitmap.Width < 6 || bitmap.Width < item.LineHeight / 2)
+        {
+            return false;
+        }
+
+        // Prefer the thinnest column: where two letters touch, the ink is at its narrowest.
+        var columns = new List<(int Ink, int X)>();
+        for (var x = 2; x <= bitmap.Width - 3; x++)
+        {
+            var ink = 0;
+            for (var y = 0; y < bitmap.Height; y++)
+            {
+                if (bitmap.GetAlpha(x, y) > 150)
+                {
+                    ink++;
+                }
+            }
+
+            columns.Add((ink, x));
+        }
+
+        columns.Sort((a, b) => a.Ink != b.Ink ? a.Ink.CompareTo(b.Ink) : a.X.CompareTo(b.X));
+        foreach (var (_, x) in columns)
+        {
+            var l = _db.GetMatch(bitmap.Crop(0, 0, x, bitmap.Height), item.TopMargin, _options.DeepSeek, _options.MaxWrongPixels);
+            if (l is null)
+            {
+                continue;
+            }
+
+            var r = _db.GetMatch(bitmap.Crop(x, 0, bitmap.Width - x, bitmap.Height), item.TopMargin, _options.DeepSeek, _options.MaxWrongPixels);
+            if (r is null)
+            {
+                continue;
+            }
+
+            left = l;
+            right = r;
+            return true;
+        }
+
+        return false;
+    }
 
     /// <summary>Merges the next N blobs and matches them as one glyph, widest run first. Only blobs on the
     /// same text line are merged; a run that matches nothing leaves the caller to match this blob alone.</summary>
