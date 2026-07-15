@@ -120,6 +120,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>A stream whose dropped-event ratio exceeds this is discarded entirely (no SRT written; a stale one is deleted), since the track OCR'd too poorly to be useful.</summary>
     public double MaxDroppedRatio { get; set; } = 0.25;
 
+    /// <summary>A stream whose finished text is more than this fraction placeholders is discarded. Catches the
+    /// track that is damaged evenly rather than in whole cues, which the two ratios above cannot see: a
+    /// language with no trained database reads as 10-25% unknown with nothing dropped at all.</summary>
+    public double MaxPlaceholderRatio { get; set; } = 0.05;
+
     /// <summary>Days before an unchanged, already-probed file is probed again. 0 re-probes only files that changed.</summary>
     public int RescanIntervalDays { get; set; } = 30;
 

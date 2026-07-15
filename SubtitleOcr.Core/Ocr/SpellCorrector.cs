@@ -126,10 +126,13 @@ public sealed partial class SpellCorrector : ISpellCorrector
             return word;
         }
 
-        // Skip likely proper nouns: capitalized but not majority-uppercase, so an all-caps sound-effect
-        // misread is still corrected. Holds even with an unknown glyph in the word: guessing at an
-        // unprotected name does more harm than leaving the placeholder visible.
-        if (char.IsUpper(word[0]) && word.Count(char.IsUpper) <= word.Count(char.IsLower))
+        // A capitalized word is a name until proven otherwise, and a name is exactly what a dictionary
+        // does not know: "ADAMA" becomes "ASAMA", "TYROL" becomes "TYRO". All-caps is a speaker label or
+        // a shout; Title-case is a proper noun. A mixed-case misread ("EXPLoSloNS") is neither and is
+        // still corrected. Holds even with an unknown glyph in the word: guessing at an unprotected name
+        // does more harm than leaving the placeholder visible.
+        if (char.IsUpper(word[0]) &&
+            (word.Count(char.IsLower) == 0 || word.Count(char.IsUpper) <= word.Count(char.IsLower)))
         {
             return word;
         }

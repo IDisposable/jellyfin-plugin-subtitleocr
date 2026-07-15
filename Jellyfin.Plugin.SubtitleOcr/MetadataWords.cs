@@ -23,14 +23,24 @@ public static partial class MetadataWords
         Add(words, item.Name);
         Add(words, item.OriginalTitle);
         Add(words, item.Overview);
+
+        // An episode's own People are guest stars and crew; the main cast hangs off the Series, and those
+        // are the names every speaker label carries.
+        var people = new List<PersonInfo>(libraryManager.GetPeople(item));
         if (item is Episode episode)
         {
             Add(words, episode.SeriesName);
+            if (episode.Series is { } series)
+            {
+                Add(words, series.Name);
+                Add(words, series.Overview);
+                people.AddRange(libraryManager.GetPeople(series));
+            }
         }
 
         // Only what the dialogue can actually say: the characters. Crew names are never spoken, and an
         // actor's own name is only in the script when they play themselves.
-        foreach (var person in libraryManager.GetPeople(item))
+        foreach (var person in people)
         {
             if (person.Type is not (PersonKind.Actor or PersonKind.GuestStar))
             {

@@ -28,6 +28,15 @@ public class SpellCorrectorTests
     public void Correct_ReturnsExpected(string input, string expected)
         => Assert.Equal(expected, Corrector.Correct(input, None));
 
+    // A dictionary does not know names, and all-caps is where they concentrate: speaker labels. The case
+    // fixes upstream already repair a downcased sound cue, so nothing here needs to touch all-caps.
+    [Theory]
+    [InlineData("TYROL")]
+    [InlineData("GALACTICA")]
+    [InlineData("BATTLESTAR")]
+    public void Correct_AllCapsWord_IsLeftAlone(string input)
+        => Assert.Equal(input, Corrector.Correct(input, None));
+
     [Fact]
     public void Correct_PreservesItalicTags()
         => Assert.Equal("<i>galactica</i>", Corrector.Correct("<i>galaxtica</i>", None));

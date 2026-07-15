@@ -336,6 +336,35 @@ public class SubtitleOcrPipeline
                 e.Text = spell.Correct(ocrFix.Apply(e.Text), effectiveProtected);
             }
 
+            // The two ratios above are per cue and per dropped cue; a track the database cannot read at all is
+            // damaged in every cue and drops none, so only the finished text shows it.
+            var textLength = 0;
+            var placeholders = 0;
+            foreach (var e in events)
+            {
+                textLength += e.Text.Length;
+                foreach (var c in e.Text)
+                {
+                    if (c == config.Placeholder)
+                    {
+                        placeholders++;
+                    }
+                }
+            }
+
+            if (textLength > 0 && placeholders > textLength * config.MaxPlaceholderRatio)
+            {
+                _logger.LogWarning(
+                    "Stream {Index} of {Path}: {Ratio:P1} of the text is unreadable (over {Max:P0}); discarding. No usable database for {Language}",
+                    stream.StreamIndex, mediaPath, (double)placeholders / textLength, config.MaxPlaceholderRatio, effectiveNormalized);
+                if (File.Exists(srtFilePath))
+                {
+                    File.Delete(srtFilePath);
+                }
+
+                return;
+            }
+
             events.Sort((a, b) => a.Start.CompareTo(b.Start));
             SrtWriter.NormalizeTimings(events);
             var content = useAss ? AssWriter.Serialize(events) : SrtWriter.Serialize(events);
