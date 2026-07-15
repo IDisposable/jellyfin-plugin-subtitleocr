@@ -8,12 +8,6 @@
     <div data-role="content">
         <div class="content-primary">
             <form id="SubtitleOcrConfigForm">
-                <div style="margin-bottom:1.5em;">
-                    <button id="ViewExtractions" is="emby-button" type="button" class="raised block emby-button">
-                        <span>View extracted subtitle files</span>
-                    </button>
-                </div>
-
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="NOcrDatabasePath">nOCR database path</label>
                     <input id="NOcrDatabasePath" name="NOcrDatabasePath" type="text" is="emby-input" />
@@ -263,10 +257,6 @@
 
         document.querySelector('#AddLanguageDatabase')
             .addEventListener('click', function () { addLanguageDatabaseRow('', ''); });
-
-        document.querySelector('#ViewExtractions').addEventListener('click', function () {
-            Dashboard.navigate('configurationpage?name=SubtitleOcrExtractions');
-        });
 
         document.querySelector('#SubtitleOcrConfigPage')
             .addEventListener('pageshow', function () {

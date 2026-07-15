@@ -57,16 +57,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
             },
 
-            // In the dashboard menu of its own, so the log is reachable without going through the
-            // plugin's settings. Jellyfin offers no way to add one to the Scheduled Tasks page itself.
+            // Its own dashboard menu entry, since Jellyfin has no way to add one to the Scheduled
+            // Tasks page. Outside Configuration/ and with only EnableInMainMenu set, matching
+            // jellyfin-plugin-playbackreporting: MenuSection/MenuIcon stranded the settings page.
             new PluginPageInfo
             {
                 Name = ExtractionsPageName,
                 DisplayName = "Extracted Subtitles",
-                EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.extractionsPage.html",
+                EmbeddedResourcePath = $"{GetType().Namespace}.Pages.extractions.html",
                 EnableInMainMenu = true,
-                MenuSection = "server",
-                MenuIcon = "subtitles",
             },
         };
     }

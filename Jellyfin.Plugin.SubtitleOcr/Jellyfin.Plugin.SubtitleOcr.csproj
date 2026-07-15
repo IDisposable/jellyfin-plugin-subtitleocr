@@ -29,7 +29,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Configuration/configPage.html" />
-    <EmbeddedResource Include="Configuration/extractionsPage.html" />
+    <EmbeddedResource Include="Pages/extractions.html" />
   </ItemGroup>
 
 </Project>
