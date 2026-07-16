@@ -91,11 +91,7 @@ public class ReprocessSubtitlesTask : IScheduledTask
                     refreshItems.Add(group.Key);
                 }
             }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogError(ex, "Failed to reprocess item {Item}", group.Key);
                 updated.AddRange(itemRecords); // keep the originals so nothing is lost from the log

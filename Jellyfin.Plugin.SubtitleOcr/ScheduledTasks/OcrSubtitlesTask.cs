@@ -167,8 +167,8 @@ public class OcrSubtitlesTask : IScheduledTask
                         {
                             MediaPath = item.Path,
                             FfprobePath = _mediaEncoder.ProbePath,
-                        FfmpegPath = _mediaEncoder.EncoderPath,
-                        TempFolder = plugin.TempFolder,
+                            FfmpegPath = _mediaEncoder.EncoderPath,
+                            TempFolder = plugin.TempFolder,
                             Config = config,
                             NOcrFolder = plugin.NOcrDatabaseFolder,
                             DictionaryFolder = plugin.DictionaryFolder,
@@ -238,11 +238,7 @@ public class OcrSubtitlesTask : IScheduledTask
                             RefreshPriority.Normal);
                     }
                 }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     _logger.LogError(ex, "OCR failed for {Path}", item.Path);
                 }
@@ -250,7 +246,7 @@ public class OcrSubtitlesTask : IScheduledTask
                 // Bound each item's slice even when it wrote nothing or threw mid-way.
                 progress.Report((i + 1) * 100.0 / candidates.Count);
 
-                if (++sinceSave >= 100)
+                if (++sinceSave >= 10)
                 {
                     store.Save(state);
                     extractionLog.Save(extractions);
