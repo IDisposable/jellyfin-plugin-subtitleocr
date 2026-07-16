@@ -19,6 +19,42 @@ public class NOcrDbTests
         Assert.Equal(19, db.OcrCharactersExpanded.Count);
     }
 
+    /// <summary>
+    /// A multi-blob glyph must match at whatever size the disc drew it, and wherever in its line it sits.
+    /// Neither holds under the single-glyph cascade, which screens MarginTop in raw pixels and never relaxes
+    /// past 17: a glyph at twice its trained size sits at twice the offset, and the bundled "%" is trained at
+    /// offsets (27, 150) that describe its training line rather than itself.
+    /// </summary>
+    [Theory]
+    [InlineData("%")]
+    [InlineData("ø")]
+    [InlineData("\"")]
+    public void GetExpandedMatch_RecognizesItsOwnGlyphAtAnyScaleAndLinePosition(string text)
+    {
+        var db = NOcrDb.LoadEmbeddedLatin();
+        var glyphs = db.OcrCharactersExpanded.FindAll(c => string.Equals(c.Text, text, StringComparison.Ordinal));
+        Assert.NotEmpty(glyphs);
+
+        foreach (var glyph in glyphs)
+        {
+            foreach (var scale in new[] { 1.0, 1.4, 2.0, 3.0 })
+            {
+                var bitmap = TestFixtures.RasterizeForegroundScaled(glyph, scale);
+
+                // Top of its line, and at the trained offset scaled up: the matcher must not care which.
+                foreach (var topMargin in new[] { 0, (int)Math.Round(glyph.MarginTop * scale) })
+                {
+                    var match = db.GetExpandedMatch(
+                        bitmap, topMargin, glyph.ExpandCount, deepSeek: true, maxWrongPixels: 25);
+
+                    Assert.True(
+                        match is not null && string.Equals(match.Text, text, StringComparison.Ordinal),
+                        $"\"{text}\" at scale {scale} with topMargin {topMargin} read as {match?.Text ?? "nothing"}");
+                }
+            }
+        }
+    }
+
     [Fact]
     public void LoadEmbeddedLatin_ContainsItalicGlyphs()
     {

@@ -23,9 +23,10 @@
                 </button>
             </div>
             <div class="fieldDescription" style="margin-bottom:1em;">
-                Every subtitle file the plugin has written, newest first. Reprocessing re-OCRs each one from its
-                source file with the current settings, replacing it. Clearing only forgets the log; the files stay
-                on disk, but reprocessing will no longer know about them.
+                Every subtitle file the plugin has written, newest first. Reprocessing re-OCRs a file from its
+                source with the current settings, replacing it: use the row button for one item, or Reprocess all
+                for the whole log. Clearing only forgets the log; the files stay on disk, but reprocessing will no
+                longer know about them.
             </div>
             <div id="ExtractionsBody"></div>
         </div>
@@ -60,7 +61,11 @@
                         + '<td style="padding:0.35em 0.75em 0.35em 0;"><a is="emby-linkbutton" class="button-link" href="' + escapeHtml(link) + '" target="_blank" rel="noopener">' + escapeHtml(r.ItemName || '(unknown)') + '</a></td>'
                         + '<td style="padding:0.35em 0.75em 0.35em 0;">' + escapeHtml(r.Language) + '</td>'
                         + '<td style="padding:0.35em 0.75em 0.35em 0; text-align:right;">' + r.Events + '</td>'
-                        + '<td style="padding:0.35em 0; opacity:0.85;" title="' + escapeHtml(r.SrtPath) + '">' + escapeHtml(basename(r.SrtPath)) + '</td>'
+                        + '<td style="padding:0.35em 0.75em 0.35em 0; opacity:0.85;" title="' + escapeHtml(r.SrtPath) + '">' + escapeHtml(basename(r.SrtPath)) + '</td>'
+                        + '<td style="padding:0.35em 0; text-align:right;">'
+                        + '<button is="paper-icon-button-light" type="button" class="paper-icon-button-light rowReprocess"'
+                        + ' data-item-id="' + escapeHtml(r.ItemId) + '" title="Reprocess this item">'
+                        + '<span class="material-icons refresh" aria-hidden="true"></span></button></td>'
                         + '</tr>';
                 }).join('');
 
@@ -68,7 +73,8 @@
                     + '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.9em;">'
                     + '<thead><tr style="text-align:left; border-bottom:1px solid currentColor;">'
                     + '<th style="padding-right:0.75em;">When</th><th style="padding-right:0.75em;">Item</th>'
-                    + '<th style="padding-right:0.75em;">Lang</th><th style="padding-right:0.75em; text-align:right;">Events</th><th>File</th>'
+                    + '<th style="padding-right:0.75em;">Lang</th><th style="padding-right:0.75em; text-align:right;">Events</th>'
+                    + '<th style="padding-right:0.75em;">File</th><th></th>'
                     + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
             }
 
@@ -97,7 +103,49 @@
                 var button = page.querySelector('#ReprocessAll');
                 button.disabled = running;
                 button.querySelector('span').innerHTML = running ? 'Reprocessing...' : 'Reprocess all';
+
+                // Only one Subtitle OCR run at a time, so a row button would only come back busy.
+                Array.prototype.forEach.call(page.querySelectorAll('.rowReprocess'), function (b) {
+                    b.disabled = running;
+                });
             }
+
+            // One item can own several rows (one per track), and all of them are rewritten together, so the
+            // whole list is reloaded rather than the row patched.
+            function reprocessItem(button) {
+                var itemId = button.getAttribute('data-item-id');
+
+                // Everything, not just this row: the run gate would turn any other start into a no-op.
+                setRunning(true);
+
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('Plugins/SubtitleOcr/Extractions/' + itemId + '/Reprocess'),
+                    dataType: 'json'
+                }).then(function (result) {
+                    Dashboard.alert(result.FilesWritten === 1
+                        ? '1 subtitle file written.'
+                        : result.FilesWritten + ' subtitle files written.');
+                    setRunning(false);
+                    load();
+                }, function (response) {
+                    var status = response && response.status;
+                    Dashboard.alert(status === 409
+                        ? 'A Subtitle OCR task is running. Try again when it finishes.'
+                        : status === 404
+                            ? 'The source file for this item is gone.'
+                            : 'Reprocessing this item failed. Check the server log.');
+                    setRunning(false);
+                    load();
+                });
+            }
+
+            page.querySelector('#ExtractionsBody').addEventListener('click', function (e) {
+                var button = e.target.closest('.rowReprocess');
+                if (button && !button.disabled) {
+                    reprocessItem(button);
+                }
+            });
 
             // Reloads when a run finishes: reprocessing rewrites the records, so the log on screen is stale.
             function pollState(reloadWhenIdle) {

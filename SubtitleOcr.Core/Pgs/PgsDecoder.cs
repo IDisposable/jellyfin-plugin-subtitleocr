@@ -22,7 +22,7 @@ public sealed class PgsDisplaySet
     public SubBitmap? Bitmap { get; init; }
     public bool Forced { get; init; }
 
-    /// <summary>Normalized vertical centre of the subtitle on screen (0 top, 1 bottom); ~0.9 for normal
+    /// <summary>Normalized vertical center of the subtitle on screen (0 top, 1 bottom); ~0.9 for normal
     /// bottom placement. Lower values indicate a positioned subtitle (e.g. a top sign) that SRT would move.</summary>
     public double VerticalCenter { get; init; } = 0.9;
 
@@ -182,8 +182,8 @@ public static class PgsDecoder
         for (var i = pos + 2; i + 5 <= pos + length; i += 5)
         {
             var id = b[i];
-            var (r, g, blue) = YCbCrToRgb(b[i + 1], b[i + 2], b[i + 3]);
-            palette[id] = (r, g, blue, b[i + 4]);
+            var (red, green, blue) = YCbCrToRgb(b[i + 1], b[i + 2], b[i + 3]);
+            palette[id] = (red, green, blue, b[i + 4]);
         }
     }
 

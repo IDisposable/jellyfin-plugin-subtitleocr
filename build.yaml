@@ -1,18 +1,18 @@
 ---
 name: "Subtitle OCR"
 guid: "b7a9c2e4-5d31-4f8a-9c06-3e2d1a8b4f70"
-version: "10.11.3.5"
+version: "10.11.3.6"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 overview: "OCR image-based DVD and Blu-ray subtitles to SRT or ASS"
 description: >
   Converts embedded image-based subtitle tracks (VobSub/DVD and PGS/Blu-ray) to
   external SRT or ASS files using nOCR pattern matching. Pure managed code: no Tesseract
-  and no native dependencies. The .nocr database format is interchange-compatible
-  with Subtitle Edit, so databases trained or corrected in its GUI drop straight in.
-  A scheduled task scans your Movie and Episode libraries and writes a subtitle file
-  beside each image-based track. OCR text is optionally spell-checked with Hunspell and
-  corrected with Subtitle Edit's OCR fix lists, both fetched on demand.
+  and no native libraries, using the ffmpeg your server already ships. The .nocr database
+  format is interchange-compatible with Subtitle Edit, so databases trained or corrected in
+  its GUI drop straight in. A scheduled task scans your Movie and Episode libraries and
+  writes a subtitle file beside each image-based track. OCR text is optionally spell-checked
+  with Hunspell and corrected with Subtitle Edit's OCR fix lists, both fetched on demand.
 category: "Subtitles"
 owner: "IDisposable"
 artifacts:
@@ -20,16 +20,14 @@ artifacts:
   - "SubtitleOcr.Core.dll"
   - "WeCantSpell.Hunspell.dll"
 changelog: >
-  Runs roughly three times faster: every
-  subtitle track is now pulled out of a file in one pass instead of one full pass per track, and tracks
-  recognize in parallel (see Max parallelism, which leaves half the cores to playback). Recognition
-  picks the best matching glyph rather than the first one the database lists, which fixes words like
-  "cLocK TlcKlNG" at the source and stops italics flickering on and off mid-word, and glyphs the
-  splitter breaks apart (a double quote, an o-slash) now match. A track the database cannot really read
-  is discarded instead of shipped: with only the bundled Latin database, a non-English track is often
-  10-25 percent unreadable, and those files were being written as if they were fine. Spell-check no
-  longer rewrites names, which cost you ADAMA as ASAMA and TYROL as TYRO; it also sees the whole series
-  cast now, not just an episode's guest stars. The l-to-I fixes only run for English, which stops French
-  losing every elided article. New: hearing-impaired (SDH) tracks are recognized from their own text,
-  the unknown-glyph mark is now a box rather than an asterisk (dialogue uses asterisks), and the
-  extracted-files list moved to its own dashboard page with a Reprocess button.
+  A run keeps itself off the large object heap by reusing its image buffers instead of allocating one per
+  subtitle, so recognizing a library no longer drives the full garbage collections that interrupt playback.
+  ASS output keeps the color the disc drew its subtitles in, as the track's style, with an override only
+  on the lines that differ; Auto picks ASS for a track that uses more than one color, since that is a
+  distinction SRT cannot carry. Whether a track is light text on a dark outline or the reverse is read off
+  the track itself, per track, so the Invert luma setting is gone. The extracted-files page reprocesses a
+  single item from its row, rather than only the whole log at once. A lowercase l after a speaker label
+  ("STARBUCK: lt's a girl") is read as I, a line that starts a sentence is capitalized using the line
+  before it, and a name is protected from spell-check in both singular and plural, so a cast list saying
+  "Cylons" also protects "Cylon". Multi-segment glyphs (a double quote, an o-slash, a percent sign) are
+  matched on shape, so they read at whatever size the disc drew them.

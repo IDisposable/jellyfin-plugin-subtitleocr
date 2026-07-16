@@ -12,7 +12,8 @@ public enum SubtitleOutputFormat
     /// <summary>Advanced SubStation Alpha (.ass): style control (no source positioning).</summary>
     Ass,
 
-    /// <summary>Per track: ASS when any cue is positioned away from the bottom, otherwise SRT.</summary>
+    /// <summary>Per track: ASS when any cue is positioned away from the bottom or the track uses color to tell
+    /// speakers apart, otherwise SRT.</summary>
     Auto,
 }
 
@@ -84,8 +85,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Images recognized at once. 0 uses half the cores, leaving the rest for playback.</summary>
     public int MaxParallelism { get; set; } = 0;
 
-    /// <summary>Dark-text-on-light-background discs need inverted binarization.</summary>
-    public bool InvertLuma { get; set; } = false;
 
     /// <summary>Skips subpictures flagged forced-only (usually foreign-dialogue overlays).</summary>
     public bool SkipForcedOnly { get; set; } = false;

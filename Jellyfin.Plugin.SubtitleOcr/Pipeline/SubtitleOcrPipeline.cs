@@ -21,9 +21,17 @@ public class SubtitleOcrPipeline
 {
     private const string EmbeddedLatinKey = "<embedded-latin>";
 
-    // A subtitle whose vertical centre is above this fraction of the frame is treated as positioned
+    // A subtitle whose vertical center is above this fraction of the frame is treated as positioned
     // (a sign or top caption) rather than normal bottom dialogue, so SRT would misplace it.
     private const double AssPositionThreshold = 0.6;
+
+    // A track needs this many cues of one color before that color counts as deliberate rather than as a
+    // stray sample off an odd cue.
+    private const int MinimumCuesPerColor = 3;
+
+    // Cues read to decide a track's polarity. A disc draws every cue the same way, so this only has to outvote
+    // the odd fade or logo, and reading the whole track would cost a second pass over every pixel of it.
+    private const int PolaritySampleSize = 25;
 
     private readonly ILogger<SubtitleOcrPipeline> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -219,6 +227,8 @@ public class SubtitleOcrPipeline
                 Volatile.Write(ref positioned, true);
             }
 
+            var invertLuma = DetectInvertLuma(images, stream.StreamIndex);
+
             // The matcher only reads the database, so images recognize in parallel. Results stay indexed by
             // image, which keeps the cue order without sorting threads against each other.
             var recognized = new SubtitleEvent?[images.Count];
@@ -234,8 +244,10 @@ public class SubtitleOcrPipeline
                     var image = images[ii];
                     if (!config.SkipForcedOnly || !image.Forced)
                     {
-                        var binary = image.Bitmap.Binarize(invertLuma: config.InvertLuma);
-                        var result = engine.Recognize(binary);
+                        // Disposed here and not held: the mask is pooled, and the splitter copies every glyph
+                        // it keeps out of it, so nothing downstream points back into these pixels.
+                        using var binarized = image.Bitmap.Binarize(invertLuma: invertLuma);
+                        var result = engine.Recognize(binarized.Mask);
                         if (result.GlyphCount > 0)
                         {
                             if (result.UnknownCount > result.GlyphCount * config.MaxUnknownRatio)
@@ -250,6 +262,7 @@ public class SubtitleOcrPipeline
                                     End = image.End,
                                     Text = OcrPostProcessor.Fix(result.Text, normalizedLanguage, config.Placeholder, config.NormalizeEllipsis),
                                     VerticalCenter = image.VerticalCenter,
+                                    Color = binarized.ForegroundColor,
                                 };
                             }
                         }
@@ -270,7 +283,7 @@ public class SubtitleOcrPipeline
             if (events.Count == 0)
             {
                 _logger.LogWarning(
-                    "Stream {Index} of {Path} produced no usable events ({Dropped} dropped); check InvertLuma or train the database",
+                    "Stream {Index} of {Path} produced no usable events ({Dropped} dropped); the database likely needs training for this font",
                     stream.StreamIndex, mediaPath, dropped);
                 return;
             }
@@ -295,11 +308,19 @@ public class SubtitleOcrPipeline
                 }
             }
 
-            // Auto picks ASS only when a cue is positioned.
+            // Once the language is settled, since this is a bicameral-script fix and the cues are in display
+            // order here, which is the whole basis for it.
+            if (LanguageCodes.IsLatinScript(effectiveNormalized))
+            {
+                SentenceCase.Apply(events, config.Placeholder);
+            }
+
+            // Auto picks ASS for what SRT would lose: a positioned cue, or color used to tell speakers apart.
             var useAss = config.OutputFormat switch
             {
                 SubtitleOutputFormat.Ass => true,
-                SubtitleOutputFormat.Auto => events.Exists(e => e.VerticalCenter < AssPositionThreshold),
+                SubtitleOutputFormat.Auto =>
+                    events.Exists(e => e.VerticalCenter < AssPositionThreshold) || UsesColor(events),
                 _ => false,
             };
 
@@ -484,6 +505,83 @@ public class SubtitleOcrPipeline
     }
 
     /// <summary>True when a cached asset is absent or older than the configured refresh interval.</summary>
+    /// <summary>
+    /// Which way round this track draws its text, for the binarizer, read off the track's own cues by majority:
+    /// one odd cue (a fade, a logo) must not invert a whole track, and a track that says nothing keeps the
+    /// usual polarity. Sampling stops once the outcome is settled, since the remaining cues cannot overturn it.
+    ///
+    /// Per track rather than per file or per user: polarity belongs to the track, and a disc can carry twenty.
+    /// </summary>
+    private bool DetectInvertLuma(List<SubtitleImage> images, int streamIndex)
+    {
+        var sampleSize = Math.Min(images.Count, PolaritySampleSize);
+        var majority = (sampleSize / 2) + 1;
+        var dark = 0;
+        var light = 0;
+
+        for (var i = 0; i < sampleSize; i++)
+        {
+            switch (images[i].Bitmap.LooksDarkOnLight())
+            {
+                case true:
+                    dark++;
+                    break;
+                case false:
+                    light++;
+                    break;
+                default:
+                    break;
+            }
+
+            if (dark >= majority || light >= majority)
+            {
+                break;
+            }
+        }
+
+        if (dark <= light)
+        {
+            return false;
+        }
+
+        _logger.LogInformation(
+            "Image stream {Index} reads as dark text on a light background ({Dark} of {Sampled} cues); inverting binarization",
+            streamIndex, dark, dark + light);
+        return true;
+    }
+
+    /// <summary>
+    /// Whether the track uses color to mean something, which only more than one color can. A track that is
+    /// entirely yellow says nothing SRT cannot: it is just this disc's idea of a subtitle. A track that is
+    /// mostly white with yellow lines is distinguishing them, and dropping to SRT would lose that.
+    /// </summary>
+    private static bool UsesColor(List<SubtitleEvent> events)
+    {
+        var counts = new Dictionary<int, int>();
+        var deliberate = 0;
+        foreach (var e in events)
+        {
+            if (e.Color is not { } c)
+            {
+                continue;
+            }
+
+            // Shades of one color are one color; the sampled mean drifts across antialiased cues.
+            var key = ((c.R >> 3) << 10) | ((c.G >> 3) << 5) | (c.B >> 3);
+            counts.TryGetValue(key, out var count);
+            counts[key] = ++count;
+
+            // A color turns deliberate on the cue that crosses the threshold, and the second one to do it
+            // settles the track: nothing later can make it less colorful.
+            if (count == MinimumCuesPerColor && ++deliberate > 1)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool NeedsDownload(string path, PluginConfiguration config)
     {
         if (!File.Exists(path))

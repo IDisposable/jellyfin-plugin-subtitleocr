@@ -11,5 +11,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         // Singleton keeps the loaded nOCR database across task runs.
         serviceCollection.AddSingleton<SubtitleOcrPipeline>();
+
+        // Shared by the reprocess task and the log page's per-item button.
+        serviceCollection.AddSingleton<SubtitleReprocessor>();
     }
 }

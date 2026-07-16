@@ -71,4 +71,37 @@ internal static class TestFixtures
 
         return bmp;
     }
+
+    /// <summary>
+    /// The same, drawn at <paramref name="scale"/> times the trained size, which is what a disc mastered at a
+    /// higher resolution than the training set hands the matcher. Points are dilated by one pixel so the
+    /// scaled lines stay connected.
+    /// </summary>
+    public static SubBitmap RasterizeForegroundScaled(NOcrChar glyph, double scale)
+    {
+        var width = Math.Max(2, (int)Math.Round(glyph.Width * scale));
+        var height = Math.Max(2, (int)Math.Round(glyph.Height * scale));
+        var bmp = new SubBitmap(width, height);
+
+        foreach (var line in glyph.LinesForeground)
+        {
+            foreach (var p in line.ScaledGetPoints(glyph, width, height))
+            {
+                for (var dy = -1; dy <= 1; dy++)
+                {
+                    for (var dx = -1; dx <= 1; dx++)
+                    {
+                        var x = p.X + dx;
+                        var y = p.Y + dy;
+                        if (x >= 0 && y >= 0 && x < width && y < height)
+                        {
+                            bmp.SetPixel(x, y, 255, 255, 255, 255);
+                        }
+                    }
+                }
+            }
+        }
+
+        return bmp;
+    }
 }

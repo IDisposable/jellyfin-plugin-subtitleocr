@@ -1,10 +1,5 @@
-using Jellyfin.Plugin.SubtitleOcr.Configuration;
 using Jellyfin.Plugin.SubtitleOcr.Pipeline;
-using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.MediaEncoding;
-using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -16,28 +11,20 @@ namespace Jellyfin.Plugin.SubtitleOcr.ScheduledTasks;
 /// </summary>
 public class ReprocessSubtitlesTask : IScheduledTask
 {
-    private static readonly IReadOnlySet<string> EmptyStringSet = new HashSet<string>();
-
     private readonly ILibraryManager _libraryManager;
-    private readonly IMediaEncoder _mediaEncoder;
-    private readonly IProviderManager _providerManager;
-    private readonly IFileSystem _fileSystem;
     private readonly SubtitleOcrPipeline _pipeline;
+    private readonly SubtitleReprocessor _reprocessor;
     private readonly ILogger<ReprocessSubtitlesTask> _logger;
 
     public ReprocessSubtitlesTask(
         ILibraryManager libraryManager,
-        IMediaEncoder mediaEncoder,
-        IProviderManager providerManager,
-        IFileSystem fileSystem,
         SubtitleOcrPipeline pipeline,
+        SubtitleReprocessor reprocessor,
         ILogger<ReprocessSubtitlesTask> logger)
     {
         _libraryManager = libraryManager;
-        _mediaEncoder = mediaEncoder;
-        _providerManager = providerManager;
-        _fileSystem = fileSystem;
         _pipeline = pipeline;
+        _reprocessor = reprocessor;
         _logger = logger;
     }
 
@@ -60,6 +47,8 @@ public class ReprocessSubtitlesTask : IScheduledTask
             return;
         }
 
+        // Held across the whole run, so the per-item calls below go through ReOcrAsync rather than
+        // ReprocessItemAsync, which would take the gate again for every item.
         using var run = _pipeline.TryBeginRun();
         if (run is null)
         {
@@ -97,7 +86,9 @@ public class ReprocessSubtitlesTask : IScheduledTask
                 }
                 else
                 {
-                    written += await ReOcrItemAsync(plugin, config, item, itemRecords, updated, refreshItems, cancellationToken).ConfigureAwait(false);
+                    written += await _reprocessor.ReOcrAsync(plugin, config, item, itemRecords, updated, cancellationToken)
+                        .ConfigureAwait(false);
+                    refreshItems.Add(group.Key);
                 }
             }
             catch (OperationCanceledException)
@@ -117,60 +108,11 @@ public class ReprocessSubtitlesTask : IScheduledTask
 
         foreach (var id in refreshItems)
         {
-            _providerManager.QueueRefresh(
-                id,
-                new MetadataRefreshOptions(new DirectoryService(_fileSystem)),
-                RefreshPriority.Normal);
+            _reprocessor.QueueRefresh(id);
         }
 
         _logger.LogInformation(
             "Reprocess complete: {Written} files written across {Items} items ({Skipped} skipped, source missing)",
             written, itemGroups.Count - skipped, skipped);
-    }
-
-    /// <summary>Deletes the item's existing OCR output, re-runs OCR, and replaces its log records with the
-    /// fresh output. Returns the files written.</summary>
-    private async Task<int> ReOcrItemAsync(
-        Plugin plugin, PluginConfiguration config, BaseItem item, List<ExtractionRecord> itemRecords,
-        List<ExtractionRecord> updated, HashSet<Guid> refreshItems, CancellationToken cancellationToken)
-    {
-        foreach (var record in itemRecords)
-        {
-            if (!string.IsNullOrEmpty(record.SrtPath) && File.Exists(record.SrtPath))
-            {
-                File.Delete(record.SrtPath);
-            }
-        }
-
-        var protectedWords = config.SpellCheck ? MetadataWords.From(item, _libraryManager) : EmptyStringSet;
-        var result = await _pipeline.ProcessAsync(
-            new SubtitleOcrRequest
-            {
-                MediaPath = item.Path!,
-                FfprobePath = _mediaEncoder.ProbePath,
-                        FfmpegPath = _mediaEncoder.EncoderPath,
-                        TempFolder = plugin.TempFolder,
-                Config = config,
-                NOcrFolder = plugin.NOcrDatabaseFolder,
-                DictionaryFolder = plugin.DictionaryFolder,
-                ProtectedWords = protectedWords,
-            },
-            cancellationToken).ConfigureAwait(false);
-
-        foreach (var subtitle in result.WrittenSubtitles)
-        {
-            updated.Add(new ExtractionRecord
-            {
-                ItemId = item.Id,
-                ItemName = item.Name ?? string.Empty,
-                SrtPath = subtitle.Path,
-                Language = subtitle.Language,
-                Events = subtitle.Events,
-                WhenTicks = DateTime.UtcNow.Ticks,
-            });
-        }
-
-        refreshItems.Add(item.Id);
-        return result.SrtFilesWritten;
     }
 }

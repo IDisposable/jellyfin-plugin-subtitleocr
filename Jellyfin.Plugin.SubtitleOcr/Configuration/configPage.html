@@ -180,11 +180,6 @@
                 </div>
 
                 <label class="checkboxContainer">
-                    <input id="InvertLuma" name="InvertLuma" type="checkbox" is="emby-checkbox" />
-                    <span>Invert luma (dark text on light background)</span>
-                </label>
-
-                <label class="checkboxContainer">
                     <input id="SkipForcedOnly" name="SkipForcedOnly" type="checkbox" is="emby-checkbox" />
                     <span>Skip forced-only subpictures</span>
                 </label>
@@ -287,7 +282,6 @@
                     document.querySelector('#UseOcrFixList').checked = config.UseOcrFixList;
                     document.querySelector('#OcrFixListDownloadUrl').value = config.OcrFixListDownloadUrl || '';
                     document.querySelector('#AssetRefreshDays').value = config.AssetRefreshDays;
-                    document.querySelector('#InvertLuma').checked = config.InvertLuma;
                     document.querySelector('#SkipForcedOnly').checked = config.SkipForcedOnly;
                     document.querySelector('#SkipLanguagesWithTextSubtitle').checked = config.SkipLanguagesWithTextSubtitle;
                     document.querySelector('#RescanIntervalDays').value = config.RescanIntervalDays;
@@ -329,7 +323,6 @@
                     config.UseOcrFixList = document.querySelector('#UseOcrFixList').checked;
                     config.OcrFixListDownloadUrl = document.querySelector('#OcrFixListDownloadUrl').value.trim();
                     config.AssetRefreshDays = parseInt(document.querySelector('#AssetRefreshDays').value, 10);
-                    config.InvertLuma = document.querySelector('#InvertLuma').checked;
                     config.SkipForcedOnly = document.querySelector('#SkipForcedOnly').checked;
                     config.SkipLanguagesWithTextSubtitle = document.querySelector('#SkipLanguagesWithTextSubtitle').checked;
                     config.RescanIntervalDays = parseInt(document.querySelector('#RescanIntervalDays').value, 10);

@@ -15,6 +15,12 @@ public static partial class OcrPostProcessor
     [GeneratedRegex(@"(?<=[.!?]\s|^)l(?=[a-z])", RegexOptions.Multiline)]
     private static partial Regex SentenceInitialL();
 
+    // A speaker label ends in a colon, and what follows it starts a sentence just as much as a full stop
+    // would: "STARBUCK: lt's a girl." The label has to be all-caps to count, so an ordinary clause with a
+    // colon in it ("one thing: let me finish") is left alone.
+    [GeneratedRegex(@"(?<=\p{Lu}{2,}:\s*)l(?=[a-z])", RegexOptions.Multiline)]
+    private static partial Regex SpeakerLabelL();
+
     [GeneratedRegex(@"\|")]
     private static partial Regex Pipe();
 
@@ -128,6 +134,7 @@ public static partial class OcrPostProcessor
             {
                 text = LoneLowercaseL().Replace(text, "I");
                 text = SentenceInitialL().Replace(text, "I");
+                text = SpeakerLabelL().Replace(text, "I");
             }
 
             // Pipes never occur in dialogue; they are a segmentation artifact of I or l.

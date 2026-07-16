@@ -301,7 +301,7 @@ public sealed class NOcrEngine
     }
 
     /// <summary>Rebuilds the run as one bitmap from each blob's position in the source image; only the alpha
-    /// channel is read downstream, so the copy carries no colour.</summary>
+    /// channel is read downstream, so the copy carries no color.</summary>
     private static SubBitmap Merge(List<SplitterItem> items, int index, int count, out int topMargin)
     {
         var left = items[index].X;

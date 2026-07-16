@@ -5,9 +5,13 @@
 # jellyfin-plugin-subtitleocr
 
 Converts embedded image-based subtitles (dvdsub/VobSub and PGS/Blu-ray) to SRT (`.srt`) or
-ASS (`.ass`) files using nOCR pattern matching: no Tesseract, no native dependencies, pure
+ASS (`.ass`) files using nOCR pattern matching: no Tesseract, no native libraries, pure
 managed code. Database format is interchange-compatible with [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit)'s
 `.nocr` files, so databases trained or corrected in SE's GUI drop straight in.
+
+Subtitle tracks are pulled out of the container by ffprobe and ffmpeg, which Jellyfin already
+ships as jellyfin-ffmpeg; the plugin takes their paths from the server rather than looking for
+its own.
 
 <p align="center">
 <img alt="Build" src="https://img.shields.io/github/actions/workflow/status/IDisposable/jellyfin-plugin-mindthegaps/build.yaml?branch=main">
@@ -57,7 +61,10 @@ live 10.11 server over a 14,000 item library.
 
 - **Formats in:** VobSub (DVD) and PGS (Blu-ray), from any container ffprobe can read.
 - **Formats out:** SRT, ASS, or Auto. Auto writes ASS only for a track that needs it (a cue
-  positioned away from the bottom of the screen) and SRT for everything else.
+  positioned away from the bottom of the screen, or color used to tell speakers apart) and SRT
+  for everything else. ASS keeps the source text's color.
+- **Polarity:** whether a track is light text in a dark outline or the reverse is read off the
+  track itself, per track, so there is nothing to configure.
 - **Naming:** `{name}.{lang}.OCR.srt`. The `OCR` tag marks the file as plugin-created, and
   because output only ever goes to that tagged path, source and hand-made subtitles are never
   overwritten or deleted. The track title, stream index, and forced, hearing-impaired, and
@@ -74,6 +81,12 @@ live 10.11 server over a 14,000 item library.
   describes sound the viewer cannot hear ("[engine roaring]") and ordinary dialogue does not.
 - **Scanning:** ffprobe is the sole detector (Jellyfin does not store image-based streams in
   its metadata), with a per-file cache so unchanged files are not re-probed every run.
+- **Speed:** every subtitle track comes out of the container in one pass, and the tracks
+  recognize in parallel. Half the cores are left to the server by default (see **Max
+  parallelism** on the config page).
+- **Quality gate:** a track the database cannot really read is discarded rather than written.
+  With only the bundled Latin database a non-Latin track is largely unreadable, and a mostly
+  unreadable file is worse than none (see **Max placeholder ratio**).
 
 ## Architecture
 
@@ -82,14 +95,17 @@ Jellyfin.Plugin.SubtitleOcr        host layer (Jellyfin.Controller 10.11)
 ├── Plugin.cs                      registration + config page; nocr/dictionary data folders
 ├── Pipeline/SubtitleOcrPipeline   per-file orchestration; caches DBs across runs
 ├── MetadataWords.cs               protected words from the item's Jellyfin metadata
-├── ExtractionLog.cs               record of every file written (drives the config modal)
-├── Api/SubtitleOcrController      GET/DELETE the extraction log
+├── ExtractionLog.cs               record of every file written (drives the log page)
+├── SubtitleReprocessor.cs         re-OCRs one logged item; shared by the task and the page
+├── Pages/extractions.html         dashboard page listing what was written
+├── Api/SubtitleOcrController      GET/DELETE the extraction log; reprocess one item
 └── ScheduledTasks/
     ├── OcrSubtitlesTask           finds VobSub/PGS items; refresh + progress reporting
     └── ReprocessSubtitlesTask     re-OCRs logged files with the current settings
 
 SubtitleOcr.Core                   zero Jellyfin dependencies, fully testable
-├── Extraction/FfprobeSubtitleReader  ffprobe JSON → packets + stream list (VobSub/PGS)
+├── Extraction/FfprobeSubtitleReader   ffprobe JSON: stream list (VobSub/PGS) + metadata
+├── Extraction/SubtitleStreamExtractor every track's packets in one ffprobe + ffmpeg pass
 ├── VobSub/                        SPU control sequences + RLE → RGBA; per-packet timing
 ├── Pgs/                           PGS segment/RLE decoder; show/clear timing; cue position
 ├── Subtitles/SubtitleImage        format-agnostic timed bitmap the OCR consumes
@@ -106,8 +122,15 @@ Data flow per file:
    subtitle streams (VobSub and PGS) with their language, title, and disposition flags, and
    collects the container's textual metadata as protected words. VobSub palette is parsed from
    the idx-style extradata (ffmpeg default as fallback); PGS carries its palette in-band.
-2. `ffprobe -show_packets -show_data` per stream yields assembled display units regardless of
-   container (MKV, VOB/PS, M2TS): no PES demux or mkvextract needed.
+2. Every track's packets come out together, regardless of container (MKV, VOB/PS, M2TS) and
+   with no PES demux or mkvextract: `ffprobe -show_entries packet=...` indexes the packets
+   (stream, timestamp, duration, size) while one `ffmpeg -map 0:{s} -c copy -f data` per track
+   copies the payloads out raw, both reading the file at once. Payloads land in the server's
+   temp folder and are sliced by the index when a track's turn comes, so peak memory follows
+   how many tracks are recognized at once rather than how many the file holds. The obvious
+   alternative, `ffprobe -show_data` per stream, costs a full demux per track and returns an
+   xxd hex dump: on a seven-track Blu-ray, seven passes and 1.5GB of ASCII against one pass
+   and 322MB here.
 3. VobSub SPUs decode per packet (end time from the StopDisplay delay, then packet
    duration, then the next packet). PGS display sets decode across packets: a "show"
    set is bounded by the next "show" or "clear". Both yield a timed `SubtitleImage`;
@@ -153,7 +176,7 @@ dotnet publish Jellyfin.Plugin.SubtitleOcr -c Release
 # or via jprm using build.yaml
 ```
 
-Targets Jellyfin 10.11 / net9.0 by default. To build against another ABI without
+Targets Jellyfin 10.11.0 / net9.0 by default. To build against another ABI without
 editing the csproj, pair the two overrides, e.g.
 `dotnet build -p:JellyfinVersion=10.10.7 -p:TargetFramework=net9.0` (restore separately
 first when overriding `TargetFramework`).
@@ -212,15 +235,20 @@ Nothing is bundled.
 
 ## Known gaps (roughly in priority order)
 
-1. **Segmentation is projection-profile only.** Italic glyphs that overlap
-   vertically merge into one segment and fail to match. SE's splitter handles
-   this with per-pixel flood fill and italic-shear heuristics, a port candidate.
-2. **Expanded (multi-segment) glyph matching not wired into the engine.**
-   The DB loads the 19 expanded entries but `NOcrEngine` only does single-glyph
-   matching. Ligature-heavy fonts will show as unknowns.
-3. **Binarization is luma-threshold only.** Works for the standard light-text/
-   dark-outline case (with `InvertLuma` for the reverse); discs with unusual
-   CLUT usage may need per-color-index selection instead.
+1. **Segmentation is projection-profile only.** Italic glyphs that overlap vertically merge
+   into one segment. A merged blob that matches nothing is cut at its thinnest interior
+   column and kept only when both halves match, which recovers the common kerned pair, but a
+   run of three or a pair whose halves are themselves ambiguous still fails. SE's splitter
+   uses per-pixel flood fill and italic-shear heuristics, we don't do that yet.
+2. **Expanded (multi-segment) glyph coverage is only as good as the 19 bundled entries.** They
+   are matched on shape alone (aspect to screen, fewest wrong pixels to choose), because the
+   single-glyph cascade screens `MarginTop` in raw pixels: a glyph drawn at twice its trained size
+   sits at twice the offset and was rejected for being proportionally right, and the bundled `%`
+   is trained at offsets (27, 150) describing its training line rather than itself. A ligature the
+   database was never trained on still reads as unknowns.
+3. **Binarization is luma-threshold only.** Polarity is detected per track, so both light-on-dark
+   and dark-on-light work, but a disc with unusual CLUT usage may need per-color-index selection
+   instead of a threshold at all.
 4. **No unknown-glyph export.** Dumping unmatched glyph bitmaps (BMP) to a
    training folder would close the loop with SE's nOCR training window.
 5. **PGS timing assumes one display set per packet.** Holds for MKV and typical
@@ -229,8 +257,10 @@ Nothing is bundled.
 6. **VobSub carries no cue position.** The SPU display area is relative to a frame height
    the packet does not state, so every VobSub cue is treated as bottom-placed and `Auto`
    always picks SRT for a VobSub track. PGS states its screen height, so positions are real.
-7. **Color is ignored when choosing a format.** `Auto` triggers on position only; a track
-   that uses color alone to distinguish speakers still becomes SRT.
+7. **Color survives only as a fill color.** The text's own color is sampled and written to ASS
+   (as the style, or as a `\c` override on the cues that differ), and `Auto` picks ASS for a track
+   that uses more than one. A per-cue gradient or a two-tone cue has no one color and is written
+   in the style's.
 
 ## License
 

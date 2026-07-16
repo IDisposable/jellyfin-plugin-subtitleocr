@@ -17,6 +17,25 @@ public class OcrPostProcessorTests
         Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
     }
 
+    // A speaker label's colon starts a sentence, so the l after it is an I.
+    [Theory]
+    [InlineData("STARBUCK: lt's a girl.", "STARBUCK: It's a girl.")]
+    [InlineData("BALTAR:\nlt began.", "BALTAR:\nIt began.")]
+    [InlineData("FEEBLE ANNOUNCER: lt is.", "FEEBLE ANNOUNCER: It is.")]
+    public void Fix_LowercaseLAfterSpeakerLabel_BecomesCapitalI(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // An ordinary colon mid-sentence is not a speaker label, and the word after it is a real word.
+    [Theory]
+    [InlineData("One thing: let me finish.")]
+    [InlineData("He said: look out.")]
+    public void Fix_LowercaseLAfterAnOrdinaryColon_IsLeftAlone(string input)
+    {
+        Assert.Equal(input, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
     [Fact]
     public void Fix_NonLatinScript_SkipsLatinHeuristicsButNormalizesWhitespace()
     {

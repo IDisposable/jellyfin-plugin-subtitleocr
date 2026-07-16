@@ -9,9 +9,13 @@ public sealed class SubtitleEvent
     public TimeSpan End { get; set; }
     public required string Text { get; set; }
 
-    /// <summary>Normalized vertical centre on screen (0 top, 1 bottom); ~0.9 for normal bottom placement.
+    /// <summary>Normalized vertical center on screen (0 top, 1 bottom); ~0.9 for normal bottom placement.
     /// Used to pick an ASS alignment bucket and to trigger Auto-format selection. SRT ignores it.</summary>
     public double VerticalCenter { get; set; } = 0.9;
+
+    /// <summary>Fill color of the source text, when one dominates the cue. Used to trigger Auto-format
+    /// selection and written as an ASS color override. Null when the source did not say; SRT ignores it.</summary>
+    public (byte R, byte G, byte B)? Color { get; set; }
 }
 
 public static class SrtWriter

@@ -133,7 +133,7 @@ public sealed class NOcrDb
 
                 // Fewest wrong pixels wins; ties go to the closest fit. A trained glyph is scaled to the
                 // candidate before matching, so "C" and "c" are one shape and only their size tells them
-                // apart. Database order used to decide this.
+                // apart.
                 var fit = Math.Abs(oc.MarginTop - topMargin) + Math.Abs(oc.Height - bitmap.Height) + Math.Abs(oc.Width - bitmap.Width);
                 if (errors < bestErrors || (errors == bestErrors && fit < bestFit))
                 {
@@ -163,31 +163,61 @@ public sealed class NOcrDb
     /// Matches a merged run of <paramref name="expandCount"/> blobs against the glyphs trained to span that
     /// many. The segmenter splits these apart (a double quote into two marks, "ø" into three), so they are
     /// unmatchable one blob at a time.
+    ///
+    /// Deliberately not the single-glyph cascade. That cascade screens on <c>MarginTop</c> in raw pixels and
+    /// never relaxes past 17, which rejects these outright twice over: a glyph drawn at twice its trained
+    /// size sits at twice the offset, so the proportionally correct margin is already too far away to be
+    /// believed, and the bundled "%" is trained at 27 and 150, offsets that describe what else shared its
+    /// training line rather than anything about "%". Nor is size worth screening on, since the trained glyph
+    /// is scaled to the candidate before it is compared.
+    ///
+    /// What is left is shape, so shape decides: aspect to screen and the error count to choose. Those can be
+    /// strict here because there are only 19 entries to walk, where the cascade's filters exist to keep 671
+    /// off the error counter. Strictness is the safety: a wrong hit here swallows two or three blobs and
+    /// invents a word, where a miss only leaves glyphs to be read one at a time as before.
     /// </summary>
     public NOcrChar? GetExpandedMatch(SubBitmap bitmap, int topMargin, int expandCount, bool deepSeek, int maxWrongPixels)
     {
         var heightToWidthPercent = bitmap.Height * 100.0 / bitmap.Width;
-        foreach (var pass in MatchPasses)
+
+        foreach (var pass in ExpandedMatchPasses)
         {
-            if (pass.RequireDeepSeek && !deepSeek)
-            {
-                continue;
-            }
+            var errorsAllowed = Math.Min(pass.ErrorsAllowed(maxWrongPixels), maxWrongPixels);
+            NOcrChar? best = null;
+            var bestErrors = int.MaxValue;
+            var bestAspect = double.MaxValue;
 
-            if (maxWrongPixels < pass.MinAllowance)
-            {
-                continue;
-            }
-
-            var errorsAllowed = pass.ErrorsAllowed(maxWrongPixels);
             foreach (var oc in OcrCharactersExpanded)
             {
-                if (oc.ExpandCount == expandCount &&
-                    PassFilter(bitmap, heightToWidthPercent, oc, topMargin, pass) &&
-                    IsMatch(bitmap, oc, errorsAllowed))
+                if (oc.ExpandCount != expandCount)
                 {
-                    return oc;
+                    continue;
                 }
+
+                var aspectDelta = Math.Abs(heightToWidthPercent - oc.HeightToWidthPercent);
+                if (aspectDelta >= pass.AspectMaxDelta)
+                {
+                    continue;
+                }
+
+                var errors = MatchErrors(bitmap, oc, errorsAllowed);
+                if (errors < 0)
+                {
+                    continue;
+                }
+
+                // Fewest wrong pixels wins, ties to the nearer shape.
+                if (errors < bestErrors || (errors == bestErrors && aspectDelta < bestAspect))
+                {
+                    best = oc;
+                    bestErrors = errors;
+                    bestAspect = aspectDelta;
+                }
+            }
+
+            if (best is not null)
+            {
+                return best;
             }
         }
 
@@ -307,6 +337,25 @@ public sealed class NOcrDb
         public SensitivityFilter Sensitivity { get; init; }
         public required Func<int, int> ErrorsAllowed { get; init; }
     }
+
+    /// <summary>
+    /// The cascade for multi-blob glyphs: shape only, and tight. Two rows, because an exact hit should not
+    /// have to survive the same error budget a degraded one needs. See <see cref="GetExpandedMatch"/> for why
+    /// the margin and size screens are absent rather than merely loosened.
+    /// </summary>
+    private static readonly MatchPass[] ExpandedMatchPasses =
+    {
+        new()
+        {
+            AspectMaxDelta = 15, SizeMaxDelta = int.MaxValue, MarginTopMaxDelta = int.MaxValue,
+            ErrorsAllowed = _ => 0,
+        },
+        new()
+        {
+            AspectMaxDelta = 20, SizeMaxDelta = int.MaxValue, MarginTopMaxDelta = int.MaxValue,
+            ErrorsAllowed = max => Math.Min(3, max),
+        },
+    };
 
     private static readonly MatchPass[] MatchPasses =
     {
