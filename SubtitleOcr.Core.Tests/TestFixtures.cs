@@ -60,7 +60,7 @@ internal static class TestFixtures
         var bmp = new SubBitmap(glyph.Width, glyph.Height);
         foreach (var line in glyph.LinesForeground)
         {
-            foreach (var p in line.GetPoints())
+            foreach (var p in line.Points())
             {
                 if (p.X >= 0 && p.Y >= 0 && p.X < bmp.Width && p.Y < bmp.Height)
                 {
@@ -85,7 +85,7 @@ internal static class TestFixtures
 
         foreach (var line in glyph.LinesForeground)
         {
-            foreach (var p in line.ScaledGetPoints(glyph, width, height))
+            foreach (var p in line.ScaledPoints(glyph, width, height))
             {
                 for (var dy = -1; dy <= 1; dy++)
                 {

@@ -75,7 +75,7 @@ public class NOcrEngineTests
     {
         foreach (var line in glyph.LinesForeground)
         {
-            foreach (var p in line.GetPoints())
+            foreach (var p in line.Points())
             {
                 var x = p.X + offsetX;
                 var y = p.Y + glyph.MarginTop;

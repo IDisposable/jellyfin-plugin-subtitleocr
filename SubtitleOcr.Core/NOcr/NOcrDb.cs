@@ -293,7 +293,7 @@ public sealed class NOcrDb
 
         foreach (var line in oc.LinesForeground)
         {
-            foreach (var point in line.ScaledGetPoints(oc, width, height))
+            foreach (var point in line.ScaledPoints(oc, width, height))
             {
                 if ((uint)point.X < (uint)width && (uint)point.Y < (uint)height &&
                     bitmap.GetAlpha(point.X, point.Y) <= 150 && ++errors > errorsAllowed)
@@ -305,7 +305,7 @@ public sealed class NOcrDb
 
         foreach (var line in oc.LinesBackground)
         {
-            foreach (var point in line.ScaledGetPoints(oc, width, height))
+            foreach (var point in line.ScaledPoints(oc, width, height))
             {
                 if ((uint)point.X < (uint)width && (uint)point.Y < (uint)height &&
                     bitmap.GetAlpha(point.X, point.Y) > 150 && ++errors > errorsAllowed)
