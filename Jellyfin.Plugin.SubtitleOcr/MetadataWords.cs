@@ -67,33 +67,6 @@ public static partial class MetadataWords
         foreach (Match m in Word().Matches(text))
         {
             words.Add(m.Value);
-            AddPlural(words, m.Value);
-        }
-    }
-
-    /// <summary>
-    /// Protects a name in the number the metadata did not happen to use: the cast list says "Cylons" and the
-    /// dialogue says "Cylon", or the other way about, and only one of them was covered. Just the s-plural,
-    /// because the point is names the dictionary lacks, and those take the regular form.
-    ///
-    /// Over-protecting is nearly free: spell-check only ever touches a word the dictionary does not know, so
-    /// an invented variant of an ordinary word is a word it would not have corrected anyway.
-    /// </summary>
-    private static void AddPlural(HashSet<string> words, string word)
-    {
-        if (word.Length < 3)
-        {
-            return;
-        }
-
-        if (!word.EndsWith('s'))
-        {
-            words.Add(word + "s");
-        }
-        else if (word.Length > 3 && !word.EndsWith("ss", StringComparison.OrdinalIgnoreCase))
-        {
-            // "Ross" keeps its second s; "Cylons" gives up its only one.
-            words.Add(word[..^1]);
         }
     }
 }
