@@ -151,10 +151,6 @@ public class SubtitleOcrPipeline
             new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = streamDegree },
             async (si, streamToken) =>
         {
-
-
-
-
             var stream = streams[si];
             var language = string.IsNullOrEmpty(stream.Language) ? LanguageCodes.Undetermined : stream.Language;
             var normalizedLanguage = LanguageCodes.Normalize(language);
@@ -308,13 +304,6 @@ public class SubtitleOcrPipeline
                 }
             }
 
-            // Once the language is settled, since this is a bicameral-script fix and the cues are in display
-            // order here, which is the whole basis for it.
-            if (LanguageCodes.IsLatinScript(effectiveNormalized))
-            {
-                SentenceCase.Apply(events, config.Placeholder);
-            }
-
             // Auto picks ASS for what SRT would lose: a positioned cue, or color used to tell speakers apart.
             var useAss = config.OutputFormat switch
             {
@@ -363,6 +352,15 @@ public class SubtitleOcrPipeline
             foreach (var e in events)
             {
                 e.Text = spell.Correct(ocrFix.Apply(e.Text), effectiveProtected);
+            }
+
+            // After correction, never before: capitalizing a cue's first letter turns a misread lowercase l
+            // into L, and spell-check reads Title-case as a proper noun and protects it, so a leading "lndistinct"
+            // would freeze as "Lndistinct" instead of resolving to "indistinct". Latin-only and needs the cues in
+            // display order, both true here.
+            if (LanguageCodes.IsLatinScript(effectiveNormalized))
+            {
+                SentenceCase.Apply(events, config.Placeholder);
             }
 
             // The two ratios above are per cue and per dropped cue; a track the database cannot read at all is
@@ -448,6 +446,13 @@ public class SubtitleOcrPipeline
             {
                 _logger.LogInformation("Loaded spell dictionary for {Language}: {Path}", normalizedLanguage, dicPath);
             }
+        }
+        else
+        {
+            // Spell-check is on but there is nothing to check against, so the text ships uncorrected.
+            _logger.LogWarning(
+                "Spell-check is enabled but no {Language} dictionary was found at {Path}; text is left uncorrected. Drop in the .dic/.aff there or enable dictionary download.",
+                normalizedLanguage, dicPath);
         }
 
         lock (_spellCache)
