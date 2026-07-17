@@ -6,7 +6,8 @@ The following components are derived from or format-compatible with
 [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit),
 Copyright (c) Nikolaj Olsson, MIT License:
 
-- `SubtitleOcr.Core/Assets/Latin.nocr` — trained nOCR database, included verbatim
+- `SubtitleOcr.Core/Assets/Latin.nocr` — nOCR database seeded from Subtitle Edit's
+  Latin set and extended here with glyphs trained on real disc fonts
 - `SubtitleOcr.Core/NOcr/NOcrChar.cs`, `NOcrLine.cs`, `NOcrDb.cs` — binary format,
   point interpolation, and match cascade thresholds ported from
   `src/libuilogic/Ocr/` to preserve database interchange
