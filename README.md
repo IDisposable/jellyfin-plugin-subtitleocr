@@ -146,8 +146,8 @@ Data flow per file:
 
 ## Verified (SubtitleOcr.Core.Tests, xunit)
 
-- Bundled `Latin.nocr` (from Subtitle Edit, MIT): loads all 690 glyphs; parse
-  consumes the file byte-exactly
+- Bundled `Latin.nocr` (seeded from Subtitle Edit, MIT, then extended by training
+  on real disc fonts): loads every glyph and parses the file byte-exactly
 - Save/load round-trip is lossless
 - Matcher self-recognition: 96% at zero error budget (rasterizing a glyph's own
   trained foreground lines and matching it back)
@@ -209,11 +209,14 @@ image tracks are always converted, since their language cannot be matched with c
 
 Three passes run over the OCR text, in order, each optional and each language-aware:
 
-1. **Character fixes** for the classic confusions: lone `l` to `I`, sentence-initial `l`,
-   pipes, mid-word capital `X`/`V`/`I` (`GaIactica` to `Galactica`), and a placeholder sitting
-   in a contraction slot (`it□s` to `it's`). Optionally folds dot runs (`...`, `. . .`) into a
-   single ellipsis. These are Latin-script heuristics and are skipped for other scripts. Bogus
-   italic runs are also dropped here: the database holds italic and upright variants of each
+1. **Character fixes** for the classic confusions: lone `l` to `I`, the two-letter function words
+   `lt`/`ls`/`ln`/`lf` to `It`/`Is`/`In`/`If`, `l` after a speaker label, pipes, mid-word capital
+   `X`/`V`/`I` (`GaIactica` to `Galactica`), a zero between letters to `o` (`y0u` to `you`), a
+   placeholder in a contraction slot (`it□s` to `it's`), a split double quote (`''` to `"`), and
+   tightening padded SDH brackets (`[ Sighs ]` to `[Sighs]`). Optionally folds dot runs (`...`,
+   `. . .`) into a single ellipsis. The `l`-to-`I` rules and the zero fix are Latin-script (some
+   English-only) and are skipped for other scripts; the quote and bracket fixes are universal.
+   Bogus italic runs are also dropped here: the database holds italic and upright variants of each
    glyph, and matching the wrong one for a single character produced markup like `<i>.</i>` that
    also split the word for every later stage.
 2. **Subtitle Edit OCR fix replace lists**, when a `{lang}_OCRFixReplaceList.xml` is present.

@@ -1,7 +1,7 @@
 ---
 name: "Subtitle OCR"
 guid: "b7a9c2e4-5d31-4f8a-9c06-3e2d1a8b4f70"
-version: "10.11.3.6"
+version: "10.11.3.7"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 overview: "OCR image-based DVD and Blu-ray subtitles to SRT or ASS"
@@ -20,14 +20,13 @@ artifacts:
   - "SubtitleOcr.Core.dll"
   - "WeCantSpell.Hunspell.dll"
 changelog: >
-  A run keeps itself off the large object heap by reusing its image buffers instead of allocating one per
-  subtitle, so recognizing a library no longer drives the full garbage collections that interrupt playback.
-  ASS output keeps the color the disc drew its subtitles in, as the track's style, with an override only
-  on the lines that differ; Auto picks ASS for a track that uses more than one color, since that is a
-  distinction SRT cannot carry. Whether a track is light text on a dark outline or the reverse is read off
-  the track itself, per track, so the Invert luma setting is gone. The extracted-files page reprocesses a
-  single item from its row, rather than only the whole log at once. A lowercase l after a speaker label
-  ("STARBUCK: lt's a girl") is read as I, a line that starts a sentence is capitalized using the line
-  before it, and a name is protected from spell-check in both singular and plural, so a cast list saying
-  "Cylons" also protects "Cylon". Multi-segment glyphs (a double quote, an o-slash, a percent sign) are
-  matched on shape, so they read at whatever size the disc drew them.
+  The bundled Latin database now includes glyph shapes trained on real disc fonts, so far fewer characters
+  read as the unknown box and the text comes out noticeably cleaner. Recognition is faster as well: the
+  matcher caps each comparison at the best match found so far, rounds and looks up candidates more
+  directly, and skips the multi-segment merge for runs that cannot match, all while reading exactly the
+  same characters. Text correction gains several fixes: the two-letter words It, Is, In and If are read
+  with a lowercase l, a zero between letters becomes o (y0u to you), a split double quote rejoins into
+  one, and padded sound-cue brackets tighten ("[ Sighs ]" to "[Sighs]"). A line that opens a sentence is
+  capitalized after spell-check, so a misread at the start of a line resolves against the dictionary
+  rather than freezing into a name it will not correct. When spell-check is enabled but no dictionary is
+  present, the log now says so instead of leaving the text uncorrected in silence.
