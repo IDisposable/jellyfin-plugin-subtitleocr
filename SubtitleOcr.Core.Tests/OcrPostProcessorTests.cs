@@ -36,6 +36,81 @@ public class OcrPostProcessorTests
         Assert.Equal(input, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
     }
 
+    // The two-letter function words with a lowercase l for the I; no Latin word is "lt"/"ls"/"ln"/"lf".
+    [Theory]
+    [InlineData("lt is?", "It is?")]
+    [InlineData("ls there anybody?", "Is there anybody?")]
+    [InlineData("ln case you forgot.", "In case you forgot.")]
+    [InlineData("lf you say so.", "If you say so.")]
+    [InlineData("- lt was the dragon.", "- It was the dragon.")]
+    public void Fix_TwoLetterIl_BecomesCapitalI(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // TwoLetterIl maps only a bare two-letter pair, not an l-word that merely starts with those letters.
+    // Mid-sentence so the separate sentence-initial rule is not in play.
+    [Theory]
+    [InlineData("the list of names")]
+    [InlineData("he lost lots")]
+    [InlineData("an elf and a kiln")]
+    [InlineData("a lift home")]
+    public void Fix_LWordThatIsNotAFunctionPair_IsLeftAlone(string input)
+    {
+        Assert.Equal(input, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // A zero between two letters is a misread o; case follows the neighbors.
+    [Theory]
+    [InlineData("y0u kn0w", "you know")]
+    [InlineData("l0ok ab0ut", "look about")]
+    [InlineData("N0T N0W", "NOT NOW")]
+    [InlineData("iP0d", "iPod")]
+    public void Fix_ZeroBetweenLetters_BecomesO(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // A zero that is a real digit keeps its value: no letter on both sides.
+    [Theory]
+    [InlineData("Room 302")]
+    [InlineData("2001")]
+    [InlineData("R2D2")]
+    [InlineData("Level 0")]
+    public void Fix_ZeroAsDigit_IsLeftAlone(string input)
+    {
+        Assert.Equal(input, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // A split double quote, regardless of script.
+    [Theory]
+    [InlineData("''The end.''", "\"The end.\"")]
+    [InlineData("He said ''go''.", "He said \"go\".")]
+    public void Fix_DoubleApostrophe_BecomesDoubleQuote(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, Cyrillic, Placeholder, normalizeEllipsis: false));
+    }
+
+    // Word spacing opens a gap inside a narrow bracket; SDH cues are tight.
+    [Theory]
+    [InlineData("[ Sighs ]", "[Sighs]")]
+    [InlineData("( Camera clicks )", "(Camera clicks)")]
+    [InlineData("[Door opens]", "[Door opens]")]
+    public void Fix_BracketPadding_IsTightened(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // A single apostrophe (contraction, possessive) is not a quote.
+    [Theory]
+    [InlineData("don't")]
+    [InlineData("Wanda's")]
+    public void Fix_SingleApostrophe_IsLeftAlone(string input)
+    {
+        Assert.Equal(input, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
     [Fact]
     public void Fix_NonLatinScript_SkipsLatinHeuristicsButNormalizesWhitespace()
     {

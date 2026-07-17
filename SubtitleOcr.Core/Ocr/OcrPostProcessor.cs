@@ -12,14 +12,31 @@ public static partial class OcrPostProcessor
     [GeneratedRegex(@"\bl\b")]
     private static partial Regex LoneLowercaseL();
 
-    [GeneratedRegex(@"(?<=[.!?]\s|^)l(?=[a-z])", RegexOptions.Multiline)]
-    private static partial Regex SentenceInitialL();
-
     // A speaker label ends in a colon, and what follows it starts a sentence just as much as a full stop
     // would: "STARBUCK: lt's a girl." The label has to be all-caps to count, so an ordinary clause with a
     // colon in it ("one thing: let me finish") is left alone.
     [GeneratedRegex(@"(?<=\p{Lu}{2,}:\s*)l(?=[a-z])", RegexOptions.Multiline)]
     private static partial Regex SpeakerLabelL();
+
+    // The two-letter function words It/Is/In/If, read with a lowercase l for the I. No Latin language has a
+    // word "lt"/"ls"/"ln"/"lf", and the leading-I contractions (l'll, l'm) are handled elsewhere, so only
+    // these bare pairs are caught. English only, like the other l-to-I rules.
+    [GeneratedRegex(@"\bl(?=[tsnf]\b)")]
+    private static partial Regex TwoLetterIl();
+
+    // A zero between two letters is a misread o: "y0u", "kn0w". Digits that belong (model numbers, "R2")
+    // never sit letter-0-letter. Case comes from the neighbors.
+    [GeneratedRegex(@"(?<=\p{L})0(?=\p{L})")]
+    private static partial Regex ZeroInWord();
+
+    // A straight double quote the splitter parted into two apostrophes.
+    [GeneratedRegex(@"''")]
+    private static partial Regex DoubleApostrophe();
+
+    // Word spacing can open a gap just inside a bracket ("[ Sighs ]"); the narrow bracket reads as a word
+    // break. SDH cues are conventionally tight, so close it up.
+    [GeneratedRegex(@"([\[(])[ \t]+|[ \t]+([\])])")]
+    private static partial Regex BracketPadding();
 
     [GeneratedRegex(@"\|")]
     private static partial Regex Pipe();
@@ -133,8 +150,8 @@ public static partial class OcrPostProcessor
             if (string.Equals(normalizedLanguage, English, StringComparison.Ordinal))
             {
                 text = LoneLowercaseL().Replace(text, "I");
-                text = SentenceInitialL().Replace(text, "I");
                 text = SpeakerLabelL().Replace(text, "I");
+                text = TwoLetterIl().Replace(text, "I");
             }
 
             // Pipes never occur in dialogue; they are a segmentation artifact of I or l.
@@ -144,9 +161,20 @@ public static partial class OcrPostProcessor
             text = MidWordV().Replace(text, "v");
             text = MidWordI().Replace(text, static m => new string('l', m.Length));
 
+            // A misread o. Uppercase O only when both neighbors are, so "N0T" gives "NOT" and "y0u" gives "you".
+            var beforeZero = text;
+            text = ZeroInWord().Replace(beforeZero, m =>
+                char.IsUpper(beforeZero[m.Index - 1]) && char.IsUpper(beforeZero[m.Index + 1]) ? "O" : "o");
+
             // A placeholder in a contraction slot ("it□s", "don□t") is a misread apostrophe.
             text = ContractionPattern(unknownCharacter).Replace(text, "'");
         }
+
+        // A split double quote, independent of script.
+        text = DoubleApostrophe().Replace(text, "\"");
+
+        // Tighten SDH brackets, independent of script.
+        text = BracketPadding().Replace(text, "$1$2");
 
         if (normalizeEllipsis)
         {
