@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/IDisposable/jellyfin-plugin-subtitleocr/main/assets/social.png",
         "versions": [
             {
+                "version": "10.11.3.7",
+                "changelog": "The bundled Latin database now includes glyph shapes trained on real disc fonts, so far fewer characters read as the unknown box and the text comes out noticeably cleaner. Recognition is faster as well: the matcher caps each comparison at the best match found so far, rounds and looks up candidates more directly, and skips the multi-segment merge for runs that cannot match, all while reading exactly the same characters. Text correction gains several fixes: the two-letter words It, Is, In and If are read with a lowercase l, a zero between letters becomes o (y0u to you), a split double quote rejoins into one, and padded sound-cue brackets tighten (\"[ Sighs ]\" to \"[Sighs]\"). A line that opens a sentence is capitalized after spell-check, so a misread at the start of a line resolves against the dictionary rather than freezing into a name it will not correct. When spell-check is enabled but no dictionary is present, the log now says so instead of leaving the text uncorrected in silence.\n",
+                "targetAbi": "10.11.0.0",
+                "sourceUrl": "https://github.com/IDisposable/jellyfin-plugin-subtitleocr/releases/download/v10.11.3.7/subtitle-ocr_10.11.3.7.zip",
+                "checksum": "cebabb09e349a7663d9338cc4293b073",
+                "timestamp": "2026-07-17T02:45:54Z"
+            },
+            {
                 "version": "10.11.3.6",
                 "changelog": "A run keeps itself off the large object heap by reusing its image buffers instead of allocating one per subtitle, so recognizing a library no longer drives the full garbage collections that interrupt playback. ASS output keeps the color the disc drew its subtitles in, as the track's style, with an override only on the lines that differ; Auto picks ASS for a track that uses more than one color, since that is a distinction SRT cannot carry. Whether a track is light text on a dark outline or the reverse is read off the track itself, per track, so the Invert luma setting is gone. The extracted-files page reprocesses a single item from its row, rather than only the whole log at once. A lowercase l after a speaker label (\"STARBUCK: lt's a girl\") is read as I, a line that starts a sentence is capitalized using the line before it, and a name is protected from spell-check in both singular and plural, so a cast list saying \"Cylons\" also protects \"Cylon\". Multi-segment glyphs (a double quote, an o-slash, a percent sign) are matched on shape, so they read at whatever size the disc drew them.\n",
                 "targetAbi": "10.11.0.0",
