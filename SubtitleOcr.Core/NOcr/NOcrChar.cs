@@ -24,15 +24,15 @@ public sealed class NOcrChar
 
     public bool LoadedOk { get; private set; }
 
-    /// <summary>Aspect key used as a coarse screen before pixel checks (square = 100).</summary>
-    public double HeightToWidthPercent => Height * 100.0 / Width;
+    /// <summary>Aspect key used as a coarse screen before pixel checks (square = 100). The matcher reads it per
+    /// candidate per pass; computed once by the loading constructor so the read is a plain field, no branch.</summary>
+    public double HeightToWidthPercent { get; private set; }
+
+    /// <summary>Total test lines, likewise computed once at load: the matcher sums the two lists per candidate.</summary>
+    public int LineCount { get; private set; }
 
     // Sensitive glyphs are shape-ambiguous; the matcher applies looser aspect but stricter passes.
     public bool IsSensitive => Text is "O" or "o" or "0" or "'" or "-" or ":" or "\"";
-
-    public NOcrChar()
-    {
-    }
 
     /// <summary>Reads one record; sets LoadedOk=false at end-of-data or corruption.</summary>
     public NOcrChar(ref int position, byte[] file, bool isVersion2)
@@ -96,6 +96,11 @@ public sealed class NOcrChar
             }
 
             LoadedOk = Width > 0 && Height > 0 && Width <= 1920 && Height <= 1080 && Text.IndexOf('\0', StringComparison.Ordinal) < 0;
+            if (LoadedOk)
+            {
+                HeightToWidthPercent = Height * 100.0 / Width;
+                LineCount = LinesForeground.Count + LinesBackground.Count;
+            }
         }
         catch
         {
