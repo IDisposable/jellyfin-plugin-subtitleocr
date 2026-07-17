@@ -288,7 +288,18 @@ public sealed class NOcrEngine
                 continue;
             }
 
-            var merged = Merge(items, index, n, out var topMargin);
+            // Aspect pre-screen off the cheap bounding box: skip the rent-and-fill for a run no expanded entry
+            // could match, which is almost every run since almost none are ligatures.
+            var (left, right, top, bottom) = RunBounds(items, index, n);
+            var width = right - left;
+            if (width <= 0 || !_db.CouldExpandedMatch(n, (bottom - top) * 100.0 / width))
+            {
+                continue;
+            }
+
+            // Rented and disposed per attempt: this runs for every blob, and GetExpandedMatch only reads the
+            // bitmap, so it need not outlive the call.
+            using var merged = Merge(items, index, n, out var topMargin);
             var match = _db.GetExpandedMatch(merged, topMargin, n, _options.DeepSeek, _options.MaxWrongPixels);
             if (match is not null)
             {
@@ -300,9 +311,8 @@ public sealed class NOcrEngine
         return null;
     }
 
-    /// <summary>Rebuilds the run as one bitmap from each blob's position in the source image; only the alpha
-    /// channel is read downstream, so the copy carries no color.</summary>
-    private static SubBitmap Merge(List<SplitterItem> items, int index, int count, out int topMargin)
+    /// <summary>The pixel box a run of blobs spans, in the source image's coordinates.</summary>
+    private static (int Left, int Right, int Top, int Bottom) RunBounds(List<SplitterItem> items, int index, int count)
     {
         var left = items[index].X;
         var right = left;
@@ -316,8 +326,16 @@ public sealed class NOcrEngine
             bottom = Math.Max(bottom, it.TopMargin + it.Bitmap.Height);
         }
 
+        return (left, right, top, bottom);
+    }
+
+    /// <summary>Rebuilds the run as one bitmap from each blob's position in the source image; only the alpha
+    /// channel is read downstream, so the copy carries no color. Rented: the caller disposes it.</summary>
+    private static SubBitmap Merge(List<SplitterItem> items, int index, int count, out int topMargin)
+    {
+        var (left, right, top, bottom) = RunBounds(items, index, count);
         topMargin = top;
-        var merged = new SubBitmap(right - left, bottom - top);
+        var merged = SubBitmap.Rent(right - left, bottom - top);
         for (var k = 0; k < count; k++)
         {
             var it = items[index + k];

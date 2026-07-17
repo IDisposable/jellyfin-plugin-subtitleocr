@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.IO.Compression;
 using System.Reflection;
 using System.Text;
@@ -67,6 +68,9 @@ public sealed class NOcrDb
             (ocrChar.ExpandCount > 0 ? db.OcrCharactersExpanded : db.OcrCharacters).Add(ocrChar);
         }
 
+        // Freeze the exact-match index now, on the load thread: the file will only be read against from here,
+        // so there is nothing to gain from deferring it into the concurrent matching that follows.
+        db.BySize();
         return db;
     }
 
@@ -125,7 +129,10 @@ public sealed class NOcrDb
                     continue;
                 }
 
-                var errors = MatchErrors(bitmap, oc, errorsAllowed);
+                // Cap the budget at the best seen: a candidate that would lose on errors bails on the pixel
+                // that crosses the current best rather than counting up to the pass ceiling. A candidate that
+                // ties (errors == bestErrors) still returns and competes on fit, so the outcome is unchanged.
+                var errors = MatchErrors(bitmap, oc, Math.Min(errorsAllowed, bestErrors));
                 if (errors < 0)
                 {
                     continue;
@@ -158,6 +165,29 @@ public sealed class NOcrDb
         : OcrCharactersExpanded.Max(c => c.ExpandCount);
 
     private int? _maxExpandCount;
+
+    /// <summary>The loosest aspect screen any expanded pass applies. Outside it, no pass can match.</summary>
+    private const double ExpandedAspectDelta = 20;
+
+    /// <summary>
+    /// Whether any expanded entry of this run length is close enough in aspect to be worth merging the blobs
+    /// for. Lets the caller skip renting and filling a bitmap for a run that <see cref="GetExpandedMatch"/>
+    /// would aspect-reject anyway (the common case, since most runs are not ligatures). Only 19-ish entries,
+    /// so the scan is cheaper than the pixel copy it avoids.
+    /// </summary>
+    public bool CouldExpandedMatch(int expandCount, double heightToWidthPercent)
+    {
+        foreach (var oc in OcrCharactersExpanded)
+        {
+            if (oc.ExpandCount == expandCount &&
+                Math.Abs(heightToWidthPercent - oc.HeightToWidthPercent) < ExpandedAspectDelta)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Matches a merged run of <paramref name="expandCount"/> blobs against the glyphs trained to span that
@@ -200,7 +230,7 @@ public sealed class NOcrDb
                     continue;
                 }
 
-                var errors = MatchErrors(bitmap, oc, errorsAllowed);
+                var errors = MatchErrors(bitmap, oc, Math.Min(errorsAllowed, bestErrors));
                 if (errors < 0)
                 {
                     continue;
@@ -224,12 +254,28 @@ public sealed class NOcrDb
         return null;
     }
 
+    // Glyphs bucketed by exact (Width, Height). GroupBy keeps each bucket in load order, so the exact probe
+    // returns the same first-qualifying glyph as a linear scan would. Frozen and array-valued: it is built
+    // once and only read after, and a race just rebuilds an identical index.
+    private FrozenDictionary<int, NOcrChar[]>? _bySize;
+
+    private static int SizeKey(int width, int height) => (width << 16) | (height & 0xFFFF);
+
+    private FrozenDictionary<int, NOcrChar[]> BySize() =>
+        _bySize ??= OcrCharacters
+            .GroupBy(oc => SizeKey(oc.Width, oc.Height))
+            .ToFrozenDictionary(g => g.Key, g => g.ToArray());
+
     private NOcrChar? GetExactMatch(SubBitmap bitmap, int topMargin)
     {
-        foreach (var oc in OcrCharacters)
+        if (!BySize().TryGetValue(SizeKey(bitmap.Width, bitmap.Height), out var bucket))
         {
-            if (bitmap.Width == oc.Width && bitmap.Height == oc.Height &&
-                Math.Abs(oc.MarginTop - topMargin) < 5 && IsMatch(bitmap, oc, 0))
+            return null;
+        }
+
+        foreach (var oc in bucket)
+        {
+            if (Math.Abs(oc.MarginTop - topMargin) < 5 && IsMatch(bitmap, oc, 0))
             {
                 return oc;
             }
@@ -259,7 +305,7 @@ public sealed class NOcrDb
         }
 
         if (pass.MinLineCount > 0 &&
-            oc.LinesForeground.Count + oc.LinesBackground.Count < pass.MinLineCount)
+            oc.LineCount < pass.MinLineCount)
         {
             return false;
         }
@@ -282,7 +328,7 @@ public sealed class NOcrDb
     /// <summary>Wrong pixels for this glyph, or -1 once the budget is blown (it stops counting there).</summary>
     private static int MatchErrors(SubBitmap bitmap, NOcrChar oc, int errorsAllowed)
     {
-        if (oc.LinesForeground.Count + oc.LinesBackground.Count < MinLinesForSingleMatch)
+        if (oc.LineCount < MinLinesForSingleMatch)
         {
             return -1;
         }

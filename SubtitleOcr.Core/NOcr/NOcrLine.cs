@@ -84,10 +84,15 @@ public sealed class NOcrLine
             }
 
             _current = _xMajor
-                ? new OcrPoint(_i, (int)Math.Round(_y1 + (_factor * (_i - _x1)), MidpointRounding.AwayFromZero))
-                : new OcrPoint((int)Math.Round(_x1 + (_factor * (_i - _y1)), MidpointRounding.AwayFromZero), _i);
+                ? new OcrPoint(_i, RoundAwayFromZero(_y1 + (_factor * (_i - _x1))))
+                : new OcrPoint(RoundAwayFromZero(_x1 + (_factor * (_i - _y1))), _i);
             _i++;
             return true;
         }
+
+        // Math.Round(v, AwayFromZero) for the interpolated coordinates here, without the library call: adding
+        // (or subtracting) a half before truncating toward zero rounds a .5 case away from zero exactly as
+        // MidpointRounding.AwayFromZero does. Called once per point walked, which is the matcher's hot loop.
+        private static int RoundAwayFromZero(double v) => (int)(v >= 0 ? v + 0.5 : v - 0.5);
     }
 }
