@@ -49,6 +49,14 @@
 
                 <div class="checkboxContainer checkboxContainer-withDescription">
                     <label class="emby-checkbox-label">
+                        <input id="FoldForeignDiacritics" name="FoldForeignDiacritics" type="checkbox" is="emby-checkbox" />
+                        <span>Fold foreign accents</span>
+                    </label>
+                    <div class="fieldDescription checkboxFieldDescription">Fold an accented Latin letter that is foreign to the track's language to its base letter (a misread "Nothińg" to "Nothing"), keeping the accents that language legitimately uses. A known cast or character name keeps its accent.</div>
+                </div>
+
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
                         <input id="DetectHearingImpaired" name="DetectHearingImpaired" type="checkbox" is="emby-checkbox" />
                         <span>Detect hearing-impaired (SDH) tracks</span>
                     </label>
@@ -265,6 +273,7 @@
                     });
                     document.querySelector('#UnknownCharacter').value = config.UnknownCharacter || '□';
                     document.querySelector('#NormalizeEllipsis').checked = config.NormalizeEllipsis;
+                    document.querySelector('#FoldForeignDiacritics').checked = config.FoldForeignDiacritics;
                     document.querySelector('#DetectHearingImpaired').checked = config.DetectHearingImpaired;
                     document.querySelector('#Languages').value = (config.Languages || []).join(', ');
                     document.querySelector('#SpaceMinGap').value = config.SpaceMinGap;
@@ -305,6 +314,7 @@
                         }).filter(function (entry) { return entry.Language && entry.Path; });
                     config.UnknownCharacter = document.querySelector('#UnknownCharacter').value;
                     config.NormalizeEllipsis = document.querySelector('#NormalizeEllipsis').checked;
+                    config.FoldForeignDiacritics = document.querySelector('#FoldForeignDiacritics').checked;
                     config.DetectHearingImpaired = document.querySelector('#DetectHearingImpaired').checked;
                     config.Languages = document.querySelector('#Languages').value
                         .split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s; });

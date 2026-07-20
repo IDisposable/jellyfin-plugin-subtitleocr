@@ -143,12 +143,13 @@ public static partial class OcrPostProcessor
     });
 
     /// <summary>
-    /// Folds accented Latin letters to their base (ń to n, ö to o, č to c) in English text, where a diacritic
-    /// is a misread. A word that is a known proper noun (a cast or character name from the library metadata,
-    /// held in <paramref name="protectedWords"/>) is left alone: its accent is real, so "José" stays "José".
-    /// Pure ASCII text, the common English cue, is returned untouched.
+    /// Folds accented Latin letters that are foreign to <paramref name="legalAccents"/> (the letters the track's
+    /// language legitimately uses) to their base, on the reasoning that an accent the language never writes is
+    /// an OCR misread (ń to n in English). A letter the language does use is kept, so "café" stays "café" in
+    /// French. A word that is a known proper noun (a cast or character name from the library metadata, held in
+    /// <paramref name="protectedWords"/>) is left alone: its accent is real. Pure ASCII text is untouched.
     /// </summary>
-    private static string FoldDiacritics(string text, IReadOnlySet<string> protectedWords)
+    private static string FoldDiacritics(string text, IReadOnlySet<string> protectedWords, string legalAccents)
     {
         var hasNonAscii = false;
         foreach (var c in text)
@@ -165,61 +166,64 @@ public static partial class OcrPostProcessor
             return text;
         }
 
-        return Word().Replace(text, m => protectedWords.Contains(m.Value) ? m.Value : FoldWord(m.Value));
+        return Word().Replace(text, m => protectedWords.Contains(m.Value) ? m.Value : FoldWord(m.Value, legalAccents));
+    }
+
+    /// <summary>Folds every foreign-accented letter in one word, keeping ASCII, symbols, and legal accents.</summary>
+    private static string FoldWord(string word, string legalAccents)
+    {
+        var normalized = word.Normalize(NormalizationForm.FormC);
+        var sb = new StringBuilder(normalized.Length);
+        foreach (var c in normalized)
+        {
+            if (c <= 127 || !char.IsLetter(c) || legalAccents.Contains(char.ToLowerInvariant(c), StringComparison.Ordinal))
+            {
+                sb.Append(c);
+            }
+            else
+            {
+                sb.Append(FoldChar(c));
+            }
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>
-    /// Folds the diacritics of a single word. A glyph that does not decompose (the box placeholder, an
-    /// ellipsis, a music note) is left as it is, except the stroked letters and ligatures, which carry no
-    /// combining mark to drop and so are mapped to their base by hand (ł to l, ø to o, æ to ae).
+    /// Strips one accented letter to its base. The stroked letters and ligatures carry no combining mark to
+    /// drop, so they are mapped by hand (ł to l, ø to o, æ to ae); everything else decomposes and loses its
+    /// marks. A letter that will not decompose is returned unchanged.
     /// </summary>
-    private static string FoldWord(string word)
+    private static string FoldChar(char c)
     {
-        var hasNonAscii = false;
-        foreach (var c in word)
+        switch (c)
         {
-            if (c > 127)
-            {
-                hasNonAscii = true;
-                break;
-            }
+            case 'ł': return "l";
+            case 'Ł': return "L";
+            case 'ø': return "o";
+            case 'Ø': return "O";
+            case 'đ': return "d";
+            case 'Đ': return "D";
+            case 'ħ': return "h";
+            case 'Ħ': return "H";
+            case 'æ': return "ae";
+            case 'Æ': return "AE";
+            case 'œ': return "oe";
+            case 'Œ': return "OE";
+            case 'ß': return "ss";
         }
 
-        if (!hasNonAscii)
-        {
-            return word;
-        }
-
-        var decomposed = word.Normalize(NormalizationForm.FormD);
+        var decomposed = c.ToString().Normalize(NormalizationForm.FormD);
         var sb = new StringBuilder(decomposed.Length);
-        foreach (var c in decomposed)
+        foreach (var d in decomposed)
         {
-            switch (c)
+            if (CharUnicodeInfo.GetUnicodeCategory(d) != UnicodeCategory.NonSpacingMark)
             {
-                case 'ł': sb.Append('l'); break;
-                case 'Ł': sb.Append('L'); break;
-                case 'ø': sb.Append('o'); break;
-                case 'Ø': sb.Append('O'); break;
-                case 'đ': sb.Append('d'); break;
-                case 'Đ': sb.Append('D'); break;
-                case 'ħ': sb.Append('h'); break;
-                case 'Ħ': sb.Append('H'); break;
-                case 'æ': sb.Append("ae"); break;
-                case 'Æ': sb.Append("AE"); break;
-                case 'œ': sb.Append("oe"); break;
-                case 'Œ': sb.Append("OE"); break;
-                case 'ß': sb.Append("ss"); break;
-                default:
-                    if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
-                    {
-                        sb.Append(c);
-                    }
-
-                    break;
+                sb.Append(d);
             }
         }
 
-        return sb.ToString().Normalize(NormalizationForm.FormC);
+        return sb.Length > 0 ? sb.ToString() : c.ToString();
     }
 
     /// <summary>
@@ -228,9 +232,9 @@ public static partial class OcrPostProcessor
     /// <paramref name="normalizedLanguage"/> (a code from <see cref="LanguageCodes.Normalize"/>) picks which
     /// run. <paramref name="unknownCharacter"/> is the placeholder emitted for unmatched glyphs.
     /// <paramref name="protectedWords"/> are proper nouns (cast and character names) the diacritic fold must
-    /// not touch; it defaults to none.
+    /// not touch; it defaults to none. <paramref name="foldForeignDiacritics"/> enables that fold.
     /// </summary>
-    public static string Fix(string text, string normalizedLanguage, char unknownCharacter, bool normalizeEllipsis, IReadOnlySet<string>? protectedWords = null)
+    public static string Fix(string text, string normalizedLanguage, char unknownCharacter, bool normalizeEllipsis, IReadOnlySet<string>? protectedWords = null, bool foldForeignDiacritics = true)
     {
         if (LanguageCodes.IsLatinScript(normalizedLanguage))
         {
@@ -244,10 +248,14 @@ public static partial class OcrPostProcessor
                 text = LoneLowercaseL().Replace(text, "I");
                 text = SpeakerLabelL().Replace(text, "I");
                 text = TwoLetterIl().Replace(text, "I");
+            }
 
-                // English uses no diacritics (bar the rare loanword), so an accented Latin letter here is a
-                // misread of its base letter, which the database's foreign-trained variants now produce.
-                text = FoldDiacritics(text, protectedWords ?? FrozenSet<string>.Empty);
+            // An accented Latin letter the track's language never writes is a misread of its base, which the
+            // database's foreign-trained variants produce; fold it, but only for a language whose legal
+            // accents are known, so an unrecognized one is never corrupted.
+            if (foldForeignDiacritics && LanguageDiacritics.TryGetLegalAccents(normalizedLanguage, out var legalAccents))
+            {
+                text = FoldDiacritics(text, protectedWords ?? FrozenSet<string>.Empty, legalAccents);
             }
 
             // Pipes never occur in dialogue; they are a segmentation artifact of I or l.

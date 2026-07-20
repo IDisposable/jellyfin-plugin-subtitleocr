@@ -63,6 +63,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Fold dot runs ("...", ". . .", "..") into a single ellipsis character.</summary>
     public bool NormalizeEllipsis { get; set; } = true;
 
+    /// <summary>Folds an accented Latin letter that is foreign to the track's language to its base letter (a
+    /// misread "Nothińg" to "Nothing"), keeping the accents that language legitimately uses. A known cast or
+    /// character name keeps its accent regardless.</summary>
+    public bool FoldForeignDiacritics { get; set; } = true;
+
     /// <summary>Tags a track whose text describes sound ("[door slams]") as hearing-impaired when the source
     /// flags nothing, as a remuxed disc usually does not.</summary>
     public bool DetectHearingImpaired { get; set; } = true;

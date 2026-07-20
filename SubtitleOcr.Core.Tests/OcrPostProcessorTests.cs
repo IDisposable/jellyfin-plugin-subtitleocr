@@ -125,11 +125,71 @@ public class OcrPostProcessorTests
         Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
     }
 
-    // Another Latin language keeps its diacritics; only English folds them.
-    [Fact]
-    public void Fix_AccentedLatinInFrench_IsKept()
+    // Codifies the DOCS/orthography.md table: each language's own accented letters survive the fold. If the
+    // LanguageDiacritics set for a language drops one of these, that letter would fold here and this fails, so
+    // the code table, the docs table, and this test stay in lock step.
+    [Theory]
+    [InlineData("fra", "àâçéèêëîïôùûüÿœ")]
+    [InlineData("deu", "äöüß")]
+    [InlineData("spa", "áéíóúüñ")]
+    [InlineData("por", "áâãàçéêíóôõú")]
+    [InlineData("ita", "àèéìòóù")]
+    [InlineData("nld", "áéíóúëïöü")]
+    [InlineData("swe", "åäöé")]
+    [InlineData("nob", "æøåé")]
+    [InlineData("dan", "æøåé")]
+    [InlineData("fin", "äöå")]
+    [InlineData("isl", "áéíóúýþæöð")]
+    [InlineData("pol", "ąćęłńóśźż")]
+    [InlineData("ces", "áčďéěíňóřšťúůýž")]
+    [InlineData("slk", "áäčďéíĺľňóôŕšťúýž")]
+    [InlineData("hun", "áéíóöőúüű")]
+    [InlineData("ron", "ăâîșțşţ")]
+    [InlineData("hrv", "čćđšž")]
+    [InlineData("slv", "čšž")]
+    [InlineData("tur", "çğıöşü")]
+    [InlineData("cat", "àéèíïóòúüçŀ")]
+    [InlineData("est", "äöõüšž")]
+    [InlineData("lav", "āčēģīķļņšūž")]
+    [InlineData("lit", "ąčęėįšųūž")]
+    public void Fix_LegalAccentsForLanguage_AllSurvive(string language, string legalAccents)
     {
-        Assert.Equal("café à côté", OcrPostProcessor.Fix("café à côté", "fra", Placeholder, normalizeEllipsis: false));
+        Assert.Equal(legalAccents, OcrPostProcessor.Fix(legalAccents, language, Placeholder, normalizeEllipsis: false));
+    }
+
+    // The counterpart: an accent none of these languages writes folds away everywhere.
+    [Theory]
+    [InlineData("fra")]
+    [InlineData("deu")]
+    [InlineData("swe")]
+    public void Fix_AccentForeignToEveryTestedLanguage_Folds(string language)
+    {
+        // Vietnamese ơ is in no European legal set, so it always folds to o.
+        Assert.Equal("o", OcrPostProcessor.Fix("ơ", language, Placeholder, normalizeEllipsis: false));
+    }
+
+    // An accent foreign to the track's language is a misread and folds, while that language's own accents stay:
+    // Swedish writes å and ö, but not the Portuguese ã.
+    [Fact]
+    public void Fix_ForeignAccentInLatinLanguage_FoldsButKeepsLegalOnes()
+    {
+        Assert.Equal("Håkan Sao", OcrPostProcessor.Fix("Håkan São", "swe", Placeholder, normalizeEllipsis: false));
+    }
+
+    // A language absent from the legal-accent table cannot be judged, so nothing is folded.
+    [Fact]
+    public void Fix_UnknownLatinLanguage_FoldsNothing()
+    {
+        Assert.Equal("São Håkan", OcrPostProcessor.Fix("São Håkan", "afr", Placeholder, normalizeEllipsis: false));
+    }
+
+    // The fold is a setting; off, even an English accent survives.
+    [Fact]
+    public void Fix_FoldDisabled_KeepsAccents()
+    {
+        Assert.Equal(
+            "Nothińg",
+            OcrPostProcessor.Fix("Nothińg", English, Placeholder, normalizeEllipsis: false, protectedWords: null, foldForeignDiacritics: false));
     }
 
     // A cast or character name whose accent is real (it is in the metadata) is not a misread, so it survives
