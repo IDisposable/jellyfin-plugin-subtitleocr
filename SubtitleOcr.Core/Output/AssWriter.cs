@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using SubtitleOcr.Core.Imaging;
 
 namespace SubtitleOcr.Core.Output;
 
@@ -92,9 +93,7 @@ public static class AssWriter
         return best.Color;
     }
 
-    /// <summary>Colors within a bucket of each other are the same color; the source palette is exact, but
-    /// the sampled mean of an antialiased glyph lands a shade or two off.</summary>
-    private static int Key((byte R, byte G, byte B) c) => ((c.R >> 3) << 10) | ((c.G >> 3) << 5) | (c.B >> 3);
+    private static int Key((byte R, byte G, byte B) c) => ColorBucket.Key(c);
 
     private static string ColorOverride((byte R, byte G, byte B)? color, (byte R, byte G, byte B) styleColor) =>
         color is { } c && Key(c) != Key(styleColor)

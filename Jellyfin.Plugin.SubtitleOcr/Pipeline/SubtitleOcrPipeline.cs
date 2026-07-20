@@ -4,6 +4,7 @@ using Jellyfin.Plugin.SubtitleOcr.Configuration;
 using MediaBrowser.Common.Net;
 using Microsoft.Extensions.Logging;
 using SubtitleOcr.Core.Extraction;
+using SubtitleOcr.Core.Imaging;
 using SubtitleOcr.Core.NOcr;
 using SubtitleOcr.Core.Ocr;
 using SubtitleOcr.Core.Output;
@@ -393,6 +394,7 @@ public class SubtitleOcrPipeline
             }
 
             events.Sort((a, b) => a.Start.CompareTo(b.Start));
+            SrtWriter.CoalesceDuplicates(events);
             SrtWriter.NormalizeTimings(events);
             var content = useAss ? AssWriter.Serialize(events) : SrtWriter.Serialize(events);
             await File.WriteAllTextAsync(srtFilePath, content, cancellationToken).ConfigureAwait(false);
@@ -566,13 +568,14 @@ public class SubtitleOcrPipeline
         var deliberate = 0;
         foreach (var e in events)
         {
-            if (e.Color is not { } c)
+            // A cue that will not be written casts no color vote.
+            if (string.IsNullOrWhiteSpace(e.Text) || e.Color is not { } c)
             {
                 continue;
             }
 
             // Shades of one color are one color; the sampled mean drifts across antialiased cues.
-            var key = ((c.R >> 3) << 10) | ((c.G >> 3) << 5) | (c.B >> 3);
+            var key = ColorBucket.Key(c);
             counts.TryGetValue(key, out var count);
             counts[key] = ++count;
 

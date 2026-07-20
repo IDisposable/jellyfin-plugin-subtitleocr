@@ -161,7 +161,7 @@ public sealed class SubBitmap : IDisposable
 
                 // One probe, not the two a read-then-write pair would cost: this runs per foreground pixel,
                 // and the tally is 39% of this pass measured against a real cue.
-                var key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+                var key = ColorBucket.Key(r, g, b);
                 ref var bucket = ref CollectionsMarshal.GetValueRefOrAddDefault(buckets, key, out _);
                 bucket.Count++;
                 bucket.SumR += r;

@@ -29,6 +29,34 @@ public static class SrtWriter
     /// <summary>Shortest a cue is held so it stays readable, never extended into the next cue.</summary>
     public static readonly TimeSpan MinDisplay = TimeSpan.FromMilliseconds(750);
 
+    /// <summary>Largest gap across which two identical cues are treated as one re-sent caption, not a repeat.</summary>
+    public static readonly TimeSpan MaxMergeGap = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// Folds a run of consecutive cues with identical text into one spanning cue when each sits within
+    /// <see cref="MaxMergeGap"/> of the one before. A PGS caption re-sent across a palette change arrives as
+    /// adjacent duplicate events, and this collapses them; a line genuinely said twice ("No. No.") stays apart,
+    /// separated by more than the gap. Events must already be sorted by <see cref="SubtitleEvent.Start"/>.
+    /// </summary>
+    public static void CoalesceDuplicates(List<SubtitleEvent> events)
+    {
+        for (var i = events.Count - 1; i > 0; i--)
+        {
+            var previous = events[i - 1];
+            var current = events[i];
+            if (string.Equals(previous.Text, current.Text, StringComparison.Ordinal)
+                && current.Start - previous.End <= MaxMergeGap)
+            {
+                if (current.End > previous.End)
+                {
+                    previous.End = current.End;
+                }
+
+                events.RemoveAt(i);
+            }
+        }
+    }
+
     public static string Serialize(IReadOnlyList<SubtitleEvent> events)
     {
         var sb = new StringBuilder();

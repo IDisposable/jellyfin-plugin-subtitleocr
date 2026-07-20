@@ -49,6 +49,38 @@ public class SrtWriterTests
         Assert.Equal(TimeSpan.FromSeconds(10) + SrtWriter.MinDisplay, events[0].End);
     }
 
+    // A re-sent identical caption within the gap collapses to one spanning cue.
+    [Fact]
+    public void CoalesceDuplicates_AdjacentIdenticalCues_Merge()
+    {
+        var events = new List<SubtitleEvent>
+        {
+            new() { Start = TimeSpan.Zero, End = TimeSpan.FromSeconds(2), Text = "Hello" },
+            new() { Start = TimeSpan.FromSeconds(2) + TimeSpan.FromMilliseconds(50), End = TimeSpan.FromSeconds(4), Text = "Hello" },
+        };
+
+        SrtWriter.CoalesceDuplicates(events);
+
+        Assert.Single(events);
+        Assert.Equal(TimeSpan.Zero, events[0].Start);
+        Assert.Equal(TimeSpan.FromSeconds(4), events[0].End);
+    }
+
+    // The same line genuinely said twice, seconds apart, is left as two cues.
+    [Fact]
+    public void CoalesceDuplicates_IdenticalCuesFarApart_StayApart()
+    {
+        var events = new List<SubtitleEvent>
+        {
+            new() { Start = TimeSpan.Zero, End = TimeSpan.FromSeconds(2), Text = "No." },
+            new() { Start = TimeSpan.FromSeconds(5), End = TimeSpan.FromSeconds(7), Text = "No." },
+        };
+
+        SrtWriter.CoalesceDuplicates(events);
+
+        Assert.Equal(2, events.Count);
+    }
+
     [Fact]
     public void Serialize_WritesSrtHeaderAndMultiLineBody()
     {
