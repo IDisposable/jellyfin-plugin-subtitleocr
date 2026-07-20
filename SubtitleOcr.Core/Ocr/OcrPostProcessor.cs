@@ -255,6 +255,9 @@ public static partial class OcrPostProcessor
             // accents are known, so an unrecognized one is never corrupted.
             if (foldForeignDiacritics && LanguageDiacritics.TryGetLegalAccents(normalizedLanguage, out var legalAccents))
             {
+                // First rewrite a lookalike diacritic to this language's own form (Turkish cedilla to Romanian
+                // comma-below and back), so the fold keeps it instead of stripping a legitimate letter.
+                text = LanguageDiacritics.Canonicalize(text, normalizedLanguage);
                 text = FoldDiacritics(text, protectedWords ?? FrozenSet<string>.Empty, legalAccents);
             }
 

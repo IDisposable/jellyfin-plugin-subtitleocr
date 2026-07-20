@@ -26,7 +26,7 @@ language absent from the table is unknown: its accents cannot be judged, so noth
 | ces | Czech | á č ď é ě í ň ó ř š ť ú ů ý ž |
 | slk | Slovak | á ä č ď é í ĺ ľ ň ó ô ŕ š ť ú ý ž |
 | hun | Hungarian | á é í ó ö ő ú ü ű |
-| ron | Romanian | ă â î ș ț ş ţ |
+| ron | Romanian | ă â î ș ț |
 | hrv | Croatian | č ć đ š ž |
 | slv | Slovenian | č š ž |
 | tur | Turkish | ç ğ ı ö ş ü |
@@ -61,9 +61,10 @@ legitimate accent is never wrongly folded.
   https://en.wikipedia.org/wiki/Slovene_alphabet
 - **cat** `ŀ` (U+0140, l with middle dot, the ela geminada in col·legi) is standard, so included, but
   real files very often type it as `l·l` (l + U+00B7) or `l.l`. https://en.wikipedia.org/wiki/Catalan_orthography
-- **ron** the standard `ș ț` are the comma-below forms (U+0219, U+021B); real files very frequently carry
-  the Turkish cedilla lookalikes `ş ţ` (U+015F, U+0163), so both pairs are in the set to keep legitimate
-  Romanian from folding. https://en.wikipedia.org/wiki/Romanian_alphabet
+- **ron / tur** the standard Romanian `ș ț` are the comma-below forms (U+0219, U+021B); the standard Turkish
+  `ş ţ` are the cedilla forms (U+015F, U+0163). Files routinely carry the other language's form, so
+  `LanguageDiacritics.Canonicalize` rewrites the lookalike to the track language's own form before the fold
+  (Romanian keeps only the comma-below set, Turkish only the cedilla). https://en.wikipedia.org/wiki/Romanian_alphabet
 - **Vietnamese** and other unaccented-fallback languages are deliberately absent: an unknown language
   folds nothing, which already keeps all of Vietnamese's tone-marked letters.
 

@@ -34,8 +34,7 @@ public static class LanguageDiacritics
         ["ces"] = "áčďéěíňóřšťúůýž",
         ["slk"] = "áäčďéíĺľňóôŕšťúýž",
         ["hun"] = "áéíóöőúüű",
-        // The comma-below ș/ț are the standard; the cedilla ş/ţ are the codepoints most files actually carry.
-        ["ron"] = "ăâîșțşţ",
+        ["ron"] = "ăâîșț",
         ["hrv"] = "čćđšž",
         ["slv"] = "čšž",
         ["tur"] = "çğıöşü",
@@ -52,4 +51,35 @@ public static class LanguageDiacritics
     /// </summary>
     public static bool TryGetLegalAccents(string normalizedLanguage, out string legalAccents) =>
         LegalByLanguage.TryGetValue(normalizedLanguage, out legalAccents!);
+
+    // A letter with two Unicode forms that differ by language: the comma-below ș/ț (U+0219/U+021B) are
+    // standard Romanian, the cedilla ş/ţ (U+015F/U+0163) standard Turkish, and files routinely carry the
+    // other language's form. Each entry rewrites the foreign form to the language's own before the fold, so
+    // the output is canonical and the legal-accent set needs only the one form.
+    private static readonly FrozenDictionary<string, (char From, char To)[]> CanonicalByLanguage = new Dictionary<string, (char, char)[]>(StringComparer.Ordinal)
+    {
+        ["ron"] = [('ş', 'ș'), ('Ş', 'Ș'), ('ţ', 'ț'), ('Ţ', 'Ț')],
+        ["tur"] = [('ș', 'ş'), ('Ș', 'Ş'), ('ț', 'ţ'), ('Ț', 'Ţ')],
+    }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Rewrites a diacritic that <paramref name="normalizedLanguage"/> spells with a different Unicode form to
+    /// that language's standard form (the Turkish cedilla ş to the Romanian comma-below ș, and the reverse),
+    /// so a file encoded in the other language's convention still reads and folds correctly.
+    /// </summary>
+    public static string Canonicalize(string text, string normalizedLanguage)
+    {
+        if (!CanonicalByLanguage.TryGetValue(normalizedLanguage, out var map))
+        {
+            return text;
+        }
+
+        var result = text;
+        foreach (var (from, to) in map)
+        {
+            result = result.Replace(from, to);
+        }
+
+        return result;
+    }
 }

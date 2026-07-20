@@ -144,7 +144,7 @@ public class OcrPostProcessorTests
     [InlineData("ces", "áčďéěíňóřšťúůýž")]
     [InlineData("slk", "áäčďéíĺľňóôŕšťúýž")]
     [InlineData("hun", "áéíóöőúüű")]
-    [InlineData("ron", "ăâîșțşţ")]
+    [InlineData("ron", "ăâîșț")]
     [InlineData("hrv", "čćđšž")]
     [InlineData("slv", "čšž")]
     [InlineData("tur", "çğıöşü")]
@@ -166,6 +166,20 @@ public class OcrPostProcessorTests
     {
         // Vietnamese ơ is in no European legal set, so it always folds to o.
         Assert.Equal("o", OcrPostProcessor.Fix("ơ", language, Placeholder, normalizeEllipsis: false));
+    }
+
+    // The two Unicode forms of s-comma / t-comma are canonicalized to the track language's own before the
+    // fold, so a file encoded in the other convention keeps the letter instead of folding it to a bare s/t.
+    [Theory]
+    // Romanian standard is comma-below; the cedilla lookalikes rewrite to it.
+    [InlineData("ron", "Iaşi Constanţa", "Iași Constanța")]
+    [InlineData("ron", "Iași Constanța", "Iași Constanța")]
+    // Turkish standard is the cedilla; a comma-below form rewrites to it.
+    [InlineData("tur", "kuș yaș", "kuş yaş")]
+    [InlineData("tur", "kuş yaş", "kuş yaş")]
+    public void Fix_AmbiguousCommaCedilla_CanonicalizesToLanguageForm(string language, string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, language, Placeholder, normalizeEllipsis: false));
     }
 
     // An accent foreign to the track's language is a misread and folds, while that language's own accents stay:
