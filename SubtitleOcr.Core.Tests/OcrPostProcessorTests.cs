@@ -111,6 +111,27 @@ public class OcrPostProcessorTests
         Assert.Equal(input, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
     }
 
+    // English has no diacritics, so accented Latin letters there are misreads and fold to their base.
+    [Theory]
+    [InlineData("Nothińg", "Nothing")]
+    [InlineData("ćafe över there", "cafe over there")]
+    [InlineData("naïve résumé", "naive resume")]
+    // Stroked letters and ligatures carry no combining mark to drop, so they are mapped by hand.
+    [InlineData("cłan", "clan")]
+    [InlineData("øver the møon", "over the moon")]
+    [InlineData("æther", "aether")]
+    public void Fix_AccentedLatinInEnglish_FoldsToBase(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // Another Latin language keeps its diacritics; only English folds them.
+    [Fact]
+    public void Fix_AccentedLatinInFrench_IsKept()
+    {
+        Assert.Equal("café à côté", OcrPostProcessor.Fix("café à côté", "fra", Placeholder, normalizeEllipsis: false));
+    }
+
     [Fact]
     public void Fix_NonLatinScript_SkipsLatinHeuristicsButNormalizesWhitespace()
     {
@@ -201,5 +222,23 @@ public class OcrPostProcessorTests
     public void Fix_MultiCharacterItalicRun_IsKept()
     {
         Assert.Equal("<i>Galactica</i>", OcrPostProcessor.Fix("<i>Galactica</i>", English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // Padding belongs outside the tags; a lone letter then collapses, closing the run entirely.
+    [Theory]
+    [InlineData("Sausag<i>e </i>Lover", "Sausage Lover")]
+    [InlineData("purs<i>e </i>kitchen", "purse kitchen")]
+    public void Fix_SpaceBeforeItalicClose_MovesOutAndCollapsesLoneLetter(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // A real multi-letter run keeps its tags; only the padding moves out.
+    [Theory]
+    [InlineData("He said<i> no</i>", "He said <i>no</i>")]
+    [InlineData("<i>Galactica </i>lives", "<i>Galactica</i> lives")]
+    public void Fix_PaddedItalicRun_TrimsPaddingButKeepsTags(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
     }
 }

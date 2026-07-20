@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using SubtitleOcr.Core.NOcr;
 
@@ -69,6 +71,13 @@ public static partial class OcrPostProcessor
     [GeneratedRegex(@"[ \t]*\.[ \t]*\.(?:[ \t]*\.)*")]
     private static partial Regex DotRun();
 
+    // Whitespace renders the same in or out of italics, so keep it outside the tags: "<i>e </i>" is "<i>e</i> ".
+    [GeneratedRegex(@"([ \t]+)</i>")]
+    private static partial Regex SpaceInsideItalicClose();
+
+    [GeneratedRegex(@"<i>([ \t]+)")]
+    private static partial Regex SpaceInsideItalicOpen();
+
     // Nothing is italic for exactly one character, and the tags split the word for later stages.
     [GeneratedRegex(@"<i>([^<]?)</i>")]
     private static partial Regex SingleCharacterItalic();
@@ -133,6 +142,61 @@ public static partial class OcrPostProcessor
     });
 
     /// <summary>
+    /// Folds accented Latin letters to their base (ń to n, ö to o, č to c) by dropping combining marks. Pure
+    /// ASCII text, the common English cue, is returned untouched. A glyph that does not decompose (the box
+    /// placeholder, an ellipsis, a music note) is left as it is, except the stroked letters and ligatures,
+    /// which carry no combining mark to drop and so are mapped to their base by hand (ł to l, ø to o, æ to ae).
+    /// </summary>
+    private static string FoldDiacritics(string text)
+    {
+        var hasNonAscii = false;
+        foreach (var c in text)
+        {
+            if (c > 127)
+            {
+                hasNonAscii = true;
+                break;
+            }
+        }
+
+        if (!hasNonAscii)
+        {
+            return text;
+        }
+
+        var decomposed = text.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(decomposed.Length);
+        foreach (var c in decomposed)
+        {
+            switch (c)
+            {
+                case 'ł': sb.Append('l'); break;
+                case 'Ł': sb.Append('L'); break;
+                case 'ø': sb.Append('o'); break;
+                case 'Ø': sb.Append('O'); break;
+                case 'đ': sb.Append('d'); break;
+                case 'Đ': sb.Append('D'); break;
+                case 'ħ': sb.Append('h'); break;
+                case 'Ħ': sb.Append('H'); break;
+                case 'æ': sb.Append("ae"); break;
+                case 'Æ': sb.Append("AE"); break;
+                case 'œ': sb.Append("oe"); break;
+                case 'Œ': sb.Append("OE"); break;
+                case 'ß': sb.Append("ss"); break;
+                default:
+                    if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+                    {
+                        sb.Append(c);
+                    }
+
+                    break;
+            }
+        }
+
+        return sb.ToString().Normalize(NormalizationForm.FormC);
+    }
+
+    /// <summary>
     /// Cleans up OCR output. Most fixes are Latin-script heuristics and would corrupt another script, and a
     /// couple are English facts that would corrupt another Latin language, so
     /// <paramref name="normalizedLanguage"/> (a code from <see cref="LanguageCodes.Normalize"/>) picks which
@@ -152,6 +216,10 @@ public static partial class OcrPostProcessor
                 text = LoneLowercaseL().Replace(text, "I");
                 text = SpeakerLabelL().Replace(text, "I");
                 text = TwoLetterIl().Replace(text, "I");
+
+                // English uses no diacritics (bar the rare loanword), so an accented Latin letter here is a
+                // misread of its base letter, which the database's foreign-trained variants now produce.
+                text = FoldDiacritics(text);
             }
 
             // Pipes never occur in dialogue; they are a segmentation artifact of I or l.
@@ -180,6 +248,11 @@ public static partial class OcrPostProcessor
         {
             text = DotRun().Replace(text, "…");
         }
+
+        // Move padding out of the italic tags before the single-character collapse, so "<i>e </i>" becomes
+        // "<i>e</i> " and then, if the letter is a lone run, "e ".
+        text = SpaceInsideItalicClose().Replace(text, "</i>$1");
+        text = SpaceInsideItalicOpen().Replace(text, "$1<i>");
 
         // After the fold, so "<i>...</i>" collapses to "…" and not "<i>…</i>".
         text = SingleCharacterItalic().Replace(text, "$1");
