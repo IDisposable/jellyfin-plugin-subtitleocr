@@ -28,7 +28,9 @@ public sealed class SplitterItem
 /// </summary>
 public static class ImageSplitter
 {
-    public static List<SplitterItem> Split(SubBitmap bitmap, int minLineHeight = 4, int minGlyphWidth = 1)
+    // minLineHeight floors a text band at 2px so a line of only short punctuation (a lone "...", "-", or ",")
+    // survives, while a 1px row of binarization noise is still rejected.
+    public static List<SplitterItem> Split(SubBitmap bitmap, int minLineHeight = 2, int minGlyphWidth = 1)
     {
         var items = new List<SplitterItem>();
 

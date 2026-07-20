@@ -87,14 +87,14 @@ public sealed class NOcrEngine
                 i += consumed - 1;
             }
 
-            if (match is null && TrySplit(item, out var left, out var right))
+            if (match is null && TrySplit(item, out var left, out var right, out var splitX))
             {
                 matched.Add(new Matched(item, left));
                 matched.Add(new Matched(
                     new SplitterItem
                     {
                         Bitmap = item.Bitmap,
-                        X = item.X,
+                        X = item.X + splitX,
                         TopMargin = item.TopMargin,
                         GapBefore = 0,
                         LineHeight = item.LineHeight,
@@ -242,10 +242,11 @@ public sealed class NOcrEngine
     /// column and matching both halves recovers them; only a cut where both sides match is taken, so a
     /// genuinely unreadable glyph still comes out as the placeholder. Runs only on a failed match.
     /// </summary>
-    private bool TrySplit(SplitterItem item, out NOcrChar? left, out NOcrChar? right)
+    private bool TrySplit(SplitterItem item, out NOcrChar? left, out NOcrChar? right, out int splitX)
     {
         left = null;
         right = null;
+        splitX = 0;
         var bitmap = item.Bitmap;
 
         // Two letters of this line's text are about this wide; one is not.
@@ -287,6 +288,7 @@ public sealed class NOcrEngine
 
             left = l;
             right = r;
+            splitX = x;
             return true;
         }
 
