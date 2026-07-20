@@ -26,6 +26,10 @@ public sealed class PgsDisplaySet
     /// bottom placement. Lower values indicate a positioned subtitle (e.g. a top sign) that SRT would move.</summary>
     public double VerticalCenter { get; init; } = 0.9;
 
+    /// <summary>Normalized horizontal center of the subtitle on screen (0 left, 1 right); 0.5 for centered
+    /// dialogue. Off-center values indicate a positioned sign that only ASS can place.</summary>
+    public double HorizontalCenter { get; init; } = 0.5;
+
     public static PgsDisplaySet Clear { get; } = new() { Kind = PgsDisplayKind.Clear };
     public static PgsDisplaySet Ignore { get; } = new() { Kind = PgsDisplayKind.Ignore };
 }
@@ -55,6 +59,7 @@ public static class PgsDecoder
         var composition = new List<CompositionObject>();
         var hasPresentation = false;
         var paletteUpdateOnly = false;
+        var screenWidth = 0;
         var screenHeight = 0;
 
         var pos = 0;
@@ -73,7 +78,7 @@ public static class PgsDecoder
             {
                 case SegPresentation:
                     hasPresentation = true;
-                    ParsePresentation(packet, payload, length, composition, out paletteUpdateOnly, out screenHeight);
+                    ParsePresentation(packet, payload, length, composition, out paletteUpdateOnly, out screenWidth, out screenHeight);
                     break;
                 case SegPalette:
                     ParsePalette(packet, payload, length, palette);
@@ -103,7 +108,7 @@ public static class PgsDecoder
             return PgsDisplaySet.Ignore;
         }
 
-        var bitmap = Composite(renderable, objects, palette, out var contentTop, out var contentBottom);
+        var bitmap = Composite(renderable, objects, palette, out var contentTop, out var contentBottom, out var contentLeft, out var contentRight);
         if (bitmap is null)
         {
             return PgsDisplaySet.Ignore;
@@ -115,19 +120,22 @@ public static class PgsDecoder
             Bitmap = bitmap,
             Forced = renderable.Exists(c => c.Forced),
             VerticalCenter = screenHeight > 0 ? (contentTop + contentBottom) / 2.0 / screenHeight : 0.9,
+            HorizontalCenter = screenWidth > 0 ? (contentLeft + contentRight) / 2.0 / screenWidth : 0.5,
         };
     }
 
-    private static void ParsePresentation(byte[] b, int pos, int length, List<CompositionObject> composition, out bool paletteUpdateOnly, out int screenHeight)
+    private static void ParsePresentation(byte[] b, int pos, int length, List<CompositionObject> composition, out bool paletteUpdateOnly, out int screenWidth, out int screenHeight)
     {
         composition.Clear();
         paletteUpdateOnly = false;
+        screenWidth = 0;
         screenHeight = 0;
         if (length < 11)
         {
             return;
         }
 
+        screenWidth = (b[pos] << 8) | b[pos + 1];
         screenHeight = (b[pos + 2] << 8) | b[pos + 3];
 
         // width(2) height(2) frameRate(1) compositionNumber(2) compositionState(1)
@@ -221,10 +229,12 @@ public static class PgsDecoder
         }
     }
 
-    private static SubBitmap? Composite(List<CompositionObject> composition, Dictionary<int, PgsObject> objects, (byte R, byte G, byte B, byte A)[] palette, out int contentTop, out int contentBottom)
+    private static SubBitmap? Composite(List<CompositionObject> composition, Dictionary<int, PgsObject> objects, (byte R, byte G, byte B, byte A)[] palette, out int contentTop, out int contentBottom, out int contentLeft, out int contentRight)
     {
         contentTop = 0;
         contentBottom = 0;
+        contentLeft = 0;
+        contentRight = 0;
         int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
         foreach (var c in composition)
         {
@@ -249,6 +259,8 @@ public static class PgsDecoder
 
         contentTop = minY;
         contentBottom = maxY;
+        contentLeft = minX;
+        contentRight = maxX;
 
         var canvas = new SubBitmap(maxX - minX, maxY - minY);
         foreach (var c in composition)

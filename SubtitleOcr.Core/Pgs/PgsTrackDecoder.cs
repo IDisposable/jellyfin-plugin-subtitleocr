@@ -32,6 +32,7 @@ public static class PgsTrackDecoder
                 {
                     Bitmap = pending.Bitmap!,
                     VerticalCenter = pending.VerticalCenter,
+                    HorizontalCenter = pending.HorizontalCenter,
                     Start = pendingStart,
                     End = packet.Pts,
                     Forced = pending.Forced,

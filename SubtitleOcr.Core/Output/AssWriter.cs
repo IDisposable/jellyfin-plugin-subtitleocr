@@ -49,7 +49,7 @@ public static class AssWriter
 
             // Escape any literal brace from the OCR text first, so "{cough}" is shown and not parsed as an
             // override block; the style tags injected after add the only real braces.
-            var text = Alignment(e.VerticalCenter) + ColorOverride(e.Color, styleColor) + e.Text
+            var text = Alignment(e.VerticalCenter, e.HorizontalCenter) + ColorOverride(e.Color, styleColor) + e.Text
                 .Replace("{", "\\{", StringComparison.Ordinal)
                 .Replace("}", "\\}", StringComparison.Ordinal)
                 .Replace("\n", "\\N", StringComparison.Ordinal)
@@ -107,14 +107,17 @@ public static class AssWriter
             c.G.ToString("X2", CultureInfo.InvariantCulture),
             c.R.ToString("X2", CultureInfo.InvariantCulture));
 
-    /// <summary>Buckets vertical placement into an alignment override: top gets \an8, mid-screen \an5, and normal
-    /// bottom placement no override. Buckets avoid \pos and the PlayResX/Y mapping it would require.</summary>
-    private static string Alignment(double verticalCenter) => verticalCenter switch
+    /// <summary>Buckets placement into one of the nine ASS alignment anchors (the numpad \an grid): a vertical
+    /// band (top/middle/bottom) crossed with a horizontal band (left/center/right). Normal bottom-center
+    /// placement (\an2, the style default) gets no override. Buckets avoid \pos and the PlayResX/Y mapping it
+    /// would require; VobSub, which has no frame width, stays center so it collapses to the vertical-only cases.</summary>
+    private static string Alignment(double verticalCenter, double horizontalCenter)
     {
-        < 0.35 => "{\\an8}",
-        < 0.60 => "{\\an5}",
-        _ => string.Empty,
-    };
+        var column = horizontalCenter < 0.35 ? 1 : horizontalCenter < 0.65 ? 2 : 3;
+        var row = verticalCenter < 0.35 ? 6 : verticalCenter < 0.60 ? 3 : 0; // top -> 7-9, middle -> 4-6, bottom -> 1-3
+        var an = row + column;
+        return an == 2 ? string.Empty : "{\\an" + an.ToString(CultureInfo.InvariantCulture) + "}";
+    }
 
     /// <summary>ASS timecode H:MM:SS.cc, the centiseconds rounded to the nearest so a time lands on the closer
     /// boundary, not up to 9 ms early.</summary>

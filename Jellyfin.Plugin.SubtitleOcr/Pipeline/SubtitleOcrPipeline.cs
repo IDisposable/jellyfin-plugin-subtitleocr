@@ -259,6 +259,7 @@ public class SubtitleOcrPipeline
                                     End = image.End,
                                     Text = OcrPostProcessor.Fix(result.Text, normalizedLanguage, config.Placeholder, config.NormalizeEllipsis, effectiveProtected, config.FoldForeignDiacritics, config.AggressiveOcrFixes),
                                     VerticalCenter = image.VerticalCenter,
+                                    HorizontalCenter = image.HorizontalCenter,
                                     Color = binarized.ForegroundColor,
                                 };
                             }

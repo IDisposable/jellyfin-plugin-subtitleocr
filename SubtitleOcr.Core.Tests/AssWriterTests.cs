@@ -24,6 +24,34 @@ public class AssWriterTests
         Assert.Contains("Line one\\N{\\i1}italic{\\i0}", ass, StringComparison.Ordinal);
     }
 
+    // A cue placed in a screen corner gets the matching numpad \an anchor; centered dialogue gets none.
+    [Theory]
+    [InlineData(0.1, 0.1, "{\\an7}")]  // top-left
+    [InlineData(0.1, 0.9, "{\\an9}")]  // top-right
+    [InlineData(0.9, 0.1, "{\\an1}")]  // bottom-left
+    [InlineData(0.5, 0.5, "{\\an5}")]  // mid-center
+    public void Serialize_PositionedCue_GetsAlignmentAnchor(double vertical, double horizontal, string expected)
+    {
+        var events = new List<SubtitleEvent>
+        {
+            new() { Start = TimeSpan.Zero, End = TimeSpan.FromSeconds(1), Text = "Sign", VerticalCenter = vertical, HorizontalCenter = horizontal },
+        };
+
+        var ass = AssWriter.Serialize(events);
+
+        Assert.Contains(expected + "Sign", ass, StringComparison.Ordinal);
+    }
+
+    // Normal bottom-center dialogue carries no override; it rides the style's default alignment.
+    [Fact]
+    public void Serialize_BottomCenter_HasNoOverride()
+    {
+        var ass = AssWriter.Serialize(new List<SubtitleEvent> { Cue("Hello") });
+
+        Assert.Contains(",,Hello", ass, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\an", ass, StringComparison.Ordinal);
+    }
+
     // A literal brace in the OCR text is escaped, not parsed as an override block that would eat the text.
     [Fact]
     public void Serialize_LiteralBraces_AreEscaped()
