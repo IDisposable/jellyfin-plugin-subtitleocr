@@ -24,6 +24,36 @@ public class AssWriterTests
         Assert.Contains("Line one\\N{\\i1}italic{\\i0}", ass, StringComparison.Ordinal);
     }
 
+    // A literal brace in the OCR text is escaped, not parsed as an override block that would eat the text.
+    [Fact]
+    public void Serialize_LiteralBraces_AreEscaped()
+    {
+        var ass = AssWriter.Serialize(new List<SubtitleEvent> { Cue("{cough}") });
+
+        Assert.Contains("\\{cough\\}", ass, StringComparison.Ordinal);
+    }
+
+    // Centiseconds round rather than truncate, so an end time does not creep earlier.
+    [Fact]
+    public void Serialize_Timecode_RoundsCentiseconds()
+    {
+        var events = new List<SubtitleEvent> { new() { Start = TimeSpan.Zero, End = new TimeSpan(0, 0, 0, 1, 996), Text = "Hi" } };
+
+        var ass = AssWriter.Serialize(events);
+
+        Assert.Contains(",0:00:02.00,", ass, StringComparison.Ordinal);
+    }
+
+    // A blank cue is not written and casts no color vote.
+    [Fact]
+    public void Serialize_BlankCue_IsSkipped()
+    {
+        var ass = AssWriter.Serialize(new List<SubtitleEvent> { Cue("   "), Cue("Real") });
+
+        Assert.DoesNotContain(",,   ", ass, StringComparison.Ordinal);
+        Assert.Contains(",,Real", ass, StringComparison.Ordinal);
+    }
+
     // A cue with no color is white, which is the style, so nothing is overridden.
     [Fact]
     public void Serialize_NoColor_IsWhiteWithNoOverride()

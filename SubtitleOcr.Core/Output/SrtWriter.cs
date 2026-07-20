@@ -26,6 +26,9 @@ public static class SrtWriter
     /// <summary>Minimum gap enforced between consecutive events.</summary>
     public static readonly TimeSpan MinGap = TimeSpan.FromMilliseconds(1);
 
+    /// <summary>Shortest a cue is held so it stays readable, never extended into the next cue.</summary>
+    public static readonly TimeSpan MinDisplay = TimeSpan.FromMilliseconds(750);
+
     public static string Serialize(IReadOnlyList<SubtitleEvent> events)
     {
         var sb = new StringBuilder();
@@ -45,7 +48,11 @@ public static class SrtWriter
         return sb.ToString();
     }
 
-    /// <summary>Clamps missing/overlapping end times against the following event.</summary>
+    /// <summary>
+    /// Fixes each cue's end time so it is positive, at least <see cref="MinDisplay"/> long when there is room,
+    /// and never past the next cue's start. The one invariant kept throughout is that a cue never ends after
+    /// the next one begins: when a cue is jammed against its successor it is left touching it, not overlapping.
+    /// </summary>
     public static void NormalizeTimings(List<SubtitleEvent> events)
     {
         for (var i = 0; i < events.Count; i++)
@@ -56,12 +63,23 @@ public static class SrtWriter
                 e.End = e.Start + DefaultDuration;
             }
 
-            if (i + 1 < events.Count && e.End > events[i + 1].Start - MinGap)
+            var hasNext = i + 1 < events.Count;
+            var nextStart = hasNext ? events[i + 1].Start : TimeSpan.MaxValue;
+
+            // Hold a too-short cue to the readable minimum.
+            if (e.End - e.Start < MinDisplay)
             {
-                e.End = events[i + 1].Start - MinGap;
+                e.End = e.Start + MinDisplay;
+            }
+
+            // Pull it back out of the next cue, then, if that left no room at all, touch the next cue rather
+            // than overlap it.
+            if (hasNext && e.End > nextStart - MinGap)
+            {
+                e.End = nextStart - MinGap;
                 if (e.End <= e.Start)
                 {
-                    e.End = e.Start + TimeSpan.FromMilliseconds(500);
+                    e.End = nextStart;
                 }
             }
         }

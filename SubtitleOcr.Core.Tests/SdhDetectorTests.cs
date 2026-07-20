@@ -32,6 +32,32 @@ public class SdhDetectorTests
         Assert.False(SdhDetector.IsHearingImpaired(texts, SdhDetector.DefaultRatio, SdhDetector.DefaultMinimumCues));
     }
 
+    // A dialogue track that leans on inline parentheticals is not SDH: the bracket is mid-line, not opening it.
+    [Fact]
+    public void IsHearingImpaired_InlineParentheticals_IsNotSdh()
+    {
+        var texts = new List<string>();
+        for (var i = 0; i < 200; i++)
+        {
+            texts.Add("Come here (John), would you?");
+        }
+
+        Assert.False(SdhDetector.IsHearingImpaired(texts, SdhDetector.DefaultRatio, SdhDetector.DefaultMinimumCues));
+    }
+
+    // Detection reads content, not markup: an italic-wrapped sound cue still counts.
+    [Fact]
+    public void IsHearingImpaired_ItalicWrappedSoundCue_Counts()
+    {
+        var texts = new List<string>();
+        for (var i = 0; i < 20; i++)
+        {
+            texts.Add("<i>[radio chatter]</i>");
+        }
+
+        Assert.True(SdhDetector.IsHearingImpaired(texts, SdhDetector.DefaultRatio, SdhDetector.DefaultMinimumCues));
+    }
+
     [Theory]
     [InlineData("[engine roaring and stuttering]")]
     [InlineData("(EXPLOSIONS)")]

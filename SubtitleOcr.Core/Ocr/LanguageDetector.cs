@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.RegularExpressions;
 
 namespace SubtitleOcr.Core.Ocr;
@@ -12,6 +13,10 @@ public static partial class LanguageDetector
 {
     [GeneratedRegex(@"\p{L}+")]
     private static partial Regex Word();
+
+    // Italic tags are presentation, not content; strip them so a tag's letters are not counted as a word.
+    [GeneratedRegex(@"</?i>")]
+    private static partial Regex ItalicTag();
 
     // ISO 639-1 code -> distinctive common words (lowercase). Kept short and distinctive; heavy overlap
     // words (de, la, que) still count but the dominance check below is what separates close languages.
@@ -36,29 +41,50 @@ public static partial class LanguageDetector
         ("tr", new[] { "için", "bir", "bu", "ne", "çok", "daha", "ben", "sen", "evet", "hayır", "önce", "burada", "efendim", "değil" }),
     };
 
+    // A word several languages share (og, er, det across the Scandinavian set) adds signal to every one of
+    // those competitors at once, so it cannot separate them. Each word is weighted by the inverse of how many
+    // lists carry it, so a word distinctive to one language counts full and a shared one is discounted, which
+    // lets the dominance check below separate close languages without starving the absolute score.
+    private static readonly FrozenDictionary<string, double> WordWeights = BuildWeights();
+
+    private static FrozenDictionary<string, double> BuildWeights()
+    {
+        var listCount = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (_, words) in Languages)
+        {
+            foreach (var w in words.Distinct(StringComparer.Ordinal))
+            {
+                listCount[w] = listCount.GetValueOrDefault(w) + 1;
+            }
+        }
+
+        return listCount.ToFrozenDictionary(kv => kv.Key, kv => 1.0 / kv.Value, StringComparer.Ordinal);
+    }
+
     /// <summary>
-    /// Returns the detected 639-1 code, or null when no language clears the thresholds. Requires at least
-    /// <paramref name="minMatches"/> hits and the winner to lead the runner-up by <paramref name="dominance"/>x,
-    /// so ambiguous text stays undetermined rather than being mislabelled.
+    /// Returns the detected 639-1 code, or null when no language clears the thresholds. Requires the winner's
+    /// weighted score to reach <paramref name="minMatches"/> and to lead the runner-up by
+    /// <paramref name="dominance"/>x, so ambiguous text stays undetermined rather than being mislabelled. The
+    /// floor is a weighted count now (a shared word counts a fraction), so it is lower than a raw-hit floor.
     /// </summary>
-    public static string? Detect(string text, int minMatches = 8, double dominance = 1.4)
+    public static string? Detect(string text, int minMatches = 6, double dominance = 1.4)
     {
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (Match m in Word().Matches(text))
+        foreach (Match m in Word().Matches(ItalicTag().Replace(text, string.Empty)))
         {
             var w = m.Value.ToLowerInvariant();
             counts[w] = counts.GetValueOrDefault(w) + 1;
         }
 
-        var best = 0;
-        var second = 0;
+        var best = 0.0;
+        var second = 0.0;
         string? bestCode = null;
         foreach (var (code, words) in Languages)
         {
-            var score = 0;
+            var score = 0.0;
             foreach (var w in words)
             {
-                score += counts.GetValueOrDefault(w);
+                score += WordWeights[w] * counts.GetValueOrDefault(w);
             }
 
             if (score > best)

@@ -41,7 +41,16 @@ public static class AssWriter
 
         foreach (var e in events)
         {
+            if (string.IsNullOrWhiteSpace(e.Text))
+            {
+                continue;
+            }
+
+            // Escape any literal brace from the OCR text first, so "{cough}" is shown and not parsed as an
+            // override block; the style tags injected after add the only real braces.
             var text = Alignment(e.VerticalCenter) + ColorOverride(e.Color, styleColor) + e.Text
+                .Replace("{", "\\{", StringComparison.Ordinal)
+                .Replace("}", "\\}", StringComparison.Ordinal)
                 .Replace("\n", "\\N", StringComparison.Ordinal)
                 .Replace("<i>", "{\\i1}", StringComparison.Ordinal)
                 .Replace("</i>", "{\\i0}", StringComparison.Ordinal);
@@ -60,7 +69,8 @@ public static class AssWriter
         var counts = new Dictionary<int, (int Count, (byte R, byte G, byte B) Color)>();
         foreach (var e in events)
         {
-            if (e.Color is not { } c)
+            // A cue that will not be written casts no color vote.
+            if (string.IsNullOrWhiteSpace(e.Text) || e.Color is not { } c)
             {
                 continue;
             }
@@ -107,7 +117,16 @@ public static class AssWriter
         _ => string.Empty,
     };
 
-    /// <summary>ASS timecode: H:MM:SS.cc (centiseconds).</summary>
-    private static string Time(TimeSpan t) =>
-        string.Format(CultureInfo.InvariantCulture, "{0}:{1:00}:{2:00}.{3:00}", (int)t.TotalHours, t.Minutes, t.Seconds, t.Milliseconds / 10);
+    /// <summary>ASS timecode H:MM:SS.cc, the centiseconds rounded to the nearest so a time lands on the closer
+    /// boundary, not up to 9 ms early.</summary>
+    private static string Time(TimeSpan t)
+    {
+        var cs = (long)Math.Round(t.TotalMilliseconds / 10.0, MidpointRounding.AwayFromZero);
+        if (cs < 0)
+        {
+            cs = 0;
+        }
+
+        return string.Format(CultureInfo.InvariantCulture, "{0}:{1:00}:{2:00}.{3:00}", cs / 360000, cs / 6000 % 60, cs / 100 % 60, cs % 100);
+    }
 }
