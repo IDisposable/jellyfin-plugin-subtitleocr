@@ -20,6 +20,10 @@ public sealed class SubtitleEvent
     /// <summary>Fill color of the source text, when one dominates the cue. Used to trigger Auto-format
     /// selection and written as an ASS color override. Null when the source did not say; SRT ignores it.</summary>
     public (byte R, byte G, byte B)? Color { get; set; }
+
+    /// <summary>Italic runs over <see cref="Text"/>, so the text itself carries no markup and the writers add
+    /// the format's own italic tags at output. Empty for a cue with no italics.</summary>
+    public IReadOnlyList<ItalicSpan> ItalicSpans { get; set; } = Array.Empty<ItalicSpan>();
 }
 
 public static class SrtWriter
@@ -49,6 +53,7 @@ public static class SrtWriter
             var previous = events[i - 1];
             var current = events[i];
             if (string.Equals(previous.Text, current.Text, StringComparison.Ordinal)
+                && previous.ItalicSpans.SequenceEqual(current.ItalicSpans)
                 && current.Start - previous.End <= MaxMergeGap)
             {
                 if (current.End > previous.End)
@@ -74,7 +79,8 @@ public static class SrtWriter
 
             sb.Append(index++.ToString(CultureInfo.InvariantCulture)).Append("\r\n");
             sb.Append(Format(e.Start)).Append(" --> ").Append(Format(e.End)).Append("\r\n");
-            sb.Append(e.Text.Replace("\n", "\r\n", StringComparison.Ordinal)).Append("\r\n\r\n");
+            var body = ItalicMarkup.Emit(e.Text, e.ItalicSpans, "<i>", "</i>");
+            sb.Append(body.Replace("\n", "\r\n", StringComparison.Ordinal)).Append("\r\n\r\n");
         }
 
         return sb.ToString();

@@ -394,6 +394,15 @@ public class SubtitleOcrPipeline
                 return;
             }
 
+            // Correction is done, so split the inline italic tags into clean text plus spans: the writers add
+            // each format's own italic markup at output, and no serializer or later step reads presentation
+            // tags out of the text. Parsed after the discard checks above so those still see the recognizer's
+            // own output.
+            foreach (var e in events)
+            {
+                (e.Text, e.ItalicSpans) = ItalicMarkup.Parse(e.Text);
+            }
+
             events.Sort((a, b) => a.Start.CompareTo(b.Start));
             SrtWriter.CoalesceDuplicates(events);
             SrtWriter.NormalizeTimings(events);

@@ -47,17 +47,55 @@ public static class AssWriter
                 continue;
             }
 
-            // Escape any literal brace from the OCR text first, so "{cough}" is shown and not parsed as an
-            // override block; the style tags injected after add the only real braces.
-            var text = Alignment(e.VerticalCenter, e.HorizontalCenter) + ColorOverride(e.Color, styleColor) + e.Text
-                .Replace("{", "\\{", StringComparison.Ordinal)
-                .Replace("}", "\\}", StringComparison.Ordinal)
-                .Replace("\n", "\\N", StringComparison.Ordinal)
-                .Replace("<i>", "{\\i1}", StringComparison.Ordinal)
-                .Replace("</i>", "{\\i0}", StringComparison.Ordinal);
+            var text = Alignment(e.VerticalCenter, e.HorizontalCenter) + ColorOverride(e.Color, styleColor) + Body(e.Text, e.ItalicSpans);
 
             sb.Append("Dialogue: 0,").Append(Time(e.Start)).Append(',').Append(Time(e.End))
                 .Append(",Default,,0,0,0,,").Append(text).Append('\n');
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// The cue body: italic runs from the spans become {\i1}/{\i0}, the line break becomes \N, and a literal
+    /// brace from the OCR text is escaped so it is shown, not parsed as an override. One pass, because escaping
+    /// a brace shifts the character offsets the spans are measured in.
+    /// </summary>
+    private static string Body(string text, IReadOnlyList<ItalicSpan> spans)
+    {
+        var opensAt = new bool[text.Length + 1];
+        var closesAt = new bool[text.Length + 1];
+        foreach (var span in spans)
+        {
+            opensAt[span.Start] = true;
+            closesAt[span.Start + span.Length] = true;
+        }
+
+        var sb = new StringBuilder(text.Length);
+        for (var p = 0; p <= text.Length; p++)
+        {
+            if (closesAt[p])
+            {
+                sb.Append("{\\i0}");
+            }
+
+            if (p >= text.Length)
+            {
+                break;
+            }
+
+            if (opensAt[p])
+            {
+                sb.Append("{\\i1}");
+            }
+
+            switch (text[p])
+            {
+                case '{': sb.Append("\\{"); break;
+                case '}': sb.Append("\\}"); break;
+                case '\n': sb.Append("\\N"); break;
+                default: sb.Append(text[p]); break;
+            }
         }
 
         return sb.ToString();

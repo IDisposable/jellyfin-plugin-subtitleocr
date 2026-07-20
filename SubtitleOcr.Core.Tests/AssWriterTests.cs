@@ -13,7 +13,7 @@ public class AssWriterTests
     {
         var events = new List<SubtitleEvent>
         {
-            new() { Start = new TimeSpan(0, 0, 0, 1, 500), End = new TimeSpan(0, 0, 0, 2, 250), Text = "Line one\n<i>italic</i>" },
+            new() { Start = new TimeSpan(0, 0, 0, 1, 500), End = new TimeSpan(0, 0, 0, 2, 250), Text = "Line one\nitalic", ItalicSpans = new[] { new ItalicSpan(9, 6) } },
         };
 
         var ass = AssWriter.Serialize(events);
