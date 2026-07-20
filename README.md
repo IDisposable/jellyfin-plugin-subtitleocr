@@ -213,12 +213,15 @@ Three passes run over the OCR text, in order, each optional and each language-aw
    `lt`/`ls`/`ln`/`lf` to `It`/`Is`/`In`/`If`, `l` after a speaker label, pipes, mid-word capital
    `X`/`V`/`I` (`GaIactica` to `Galactica`), a zero between letters to `o` (`y0u` to `you`), a
    placeholder in a contraction slot (`it□s` to `it's`), a split double quote (`''` to `"`), and
-   tightening padded SDH brackets (`[ Sighs ]` to `[Sighs]`). Optionally folds dot runs (`...`,
-   `. . .`) into a single ellipsis. The `l`-to-`I` rules and the zero fix are Latin-script (some
-   English-only) and are skipped for other scripts; the quote and bracket fixes are universal.
-   Bogus italic runs are also dropped here: the database holds italic and upright variants of each
-   glyph, and matching the wrong one for a single character produced markup like `<i>.</i>` that
-   also split the word for every later stage.
+   tightening padded SDH brackets (`[ Sighs ]` to `[Sighs]`). In English, where a diacritic is a
+   misread, an accented Latin letter folds to its base (`Nothińg` to `Nothing`), though a cast or
+   character name whose accent is real is left alone. Optionally folds dot runs (`...`, `. . .`)
+   into a single ellipsis. The `l`-to-`I` rules, the zero fix, and the diacritic fold are
+   Latin-script (some English-only) and are skipped for other scripts; the quote and bracket fixes
+   are universal. Italic markup is tidied here too: padding is kept outside the tags (`<i>e </i>`
+   to `<i>e</i> `) and a run of a single character is dropped, since matching the wrong italic
+   variant for one glyph produced markup like `<i>.</i>` that also split the word for every later
+   stage.
 2. **Subtitle Edit OCR fix replace lists**, when a `{lang}_OCRFixReplaceList.xml` is present.
    Only the whole-word and regular expression rules are applied; SE's partial-word rules
    assume a different matching stage and corrupt real words here.
