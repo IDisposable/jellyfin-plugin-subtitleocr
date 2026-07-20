@@ -102,6 +102,77 @@ public class OcrPostProcessorTests
         Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
     }
 
+    // A one between two letters is a misread l/I; case follows the neighbors.
+    [Theory]
+    [InlineData("wi1l you", "will you")]
+    [InlineData("N1CE", "NICE")]
+    public void Fix_OneBetweenLetters_BecomesLOrI(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // A one that is a real digit keeps its value: no letter on both sides.
+    [Theory]
+    [InlineData("Room 101")]
+    [InlineData("B12")]
+    [InlineData("2001")]
+    public void Fix_OneAsDigit_IsLeftAlone(string input)
+    {
+        Assert.Equal(input, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // The splitter parts an enclitic contraction at its apostrophe; rejoin only the closed enclitics.
+    [Theory]
+    [InlineData("do n't", "don't")]
+    [InlineData("I 've got it", "I've got it")]
+    [InlineData("it 's here", "it's here")]
+    public void Fix_SplitContraction_Rejoins(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // A leading-apostrophe word legitimately follows a space and must not be joined to the prior word.
+    [Theory]
+    [InlineData("get 'em")]
+    [InlineData("just 'cause")]
+    public void Fix_LeadingApostropheWord_IsLeftAlone(string input)
+    {
+        Assert.Equal(input, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // The splitter opens a gap before narrow punctuation; no orthography writes a space before a comma or period.
+    [Theory]
+    [InlineData("Hello , world .", "Hello, world.")]
+    [InlineData("the end .", "the end.")]
+    public void Fix_SpaceBeforePunctuation_IsClosed(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // A dot run stays a dot run: the period rule never touches a dot beside another dot.
+    [Fact]
+    public void Fix_SpaceBeforePeriod_LeavesDotRuns()
+    {
+        Assert.Equal("Wait . ..", OcrPostProcessor.Fix("Wait . ..", English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // A speaker dash at the line start gets its space; a mid-word hyphen and an em dash do not.
+    [Theory]
+    [InlineData("-Yeah.\n-No.", "- Yeah.\n- No.")]
+    [InlineData("well-known", "well-known")]
+    [InlineData("—and then", "—and then")]
+    public void Fix_LeadingSpeakerDash_GetsSpace(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // Trailing whitespace on an inner line of a multi-line cue is removed.
+    [Fact]
+    public void Fix_TrailingLineWhitespace_IsTrimmed()
+    {
+        Assert.Equal("Hello\nworld", OcrPostProcessor.Fix("Hello \nworld", English, Placeholder, normalizeEllipsis: false));
+    }
+
     // A single apostrophe (contraction, possessive) is not a quote.
     [Theory]
     [InlineData("don't")]

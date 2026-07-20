@@ -32,6 +32,33 @@ public static partial class OcrPostProcessor
     [GeneratedRegex(@"(?<=\p{L})0(?=\p{L})")]
     private static partial Regex ZeroInWord();
 
+    // A one between two letters is a misread l or I: "wi1l", "N1CE". Real digits never sit letter-1-letter
+    // (part numbers put digits next to digits). Case from the neighbors, as with the zero rule.
+    [GeneratedRegex(@"(?<=\p{L})1(?=\p{L})")]
+    private static partial Regex OneInWord();
+
+    // The splitter opens a gap at a raised apostrophe, parting an enclitic contraction: "do n't", "I 've".
+    // Only the closed English enclitics rejoin; a leading-apostrophe word ("get 'em", "'cause") does not.
+    [GeneratedRegex(@"(?<=\p{L})[ \t]+(n't\b|'(?:s|ll|re|ve|d|m)\b)")]
+    private static partial Regex SplitContraction();
+
+    // No orthography writes a space before a comma. A period is closed up too, unless it sits next to another
+    // dot, which leaves an ellipsis or dot run to the ellipsis fold.
+    [GeneratedRegex(@"[ \t]+,")]
+    private static partial Regex SpaceBeforeComma();
+
+    [GeneratedRegex(@"(?<!\.[ \t]?)[ \t]+\.(?![ \t]?\.)")]
+    private static partial Regex SpaceBeforePeriod();
+
+    // A dialogue line opens with a speaker dash; the splitter can drop the space after it. Only a line-initial
+    // hyphen before a letter gets the space, never a mid-word hyphen or an em dash.
+    [GeneratedRegex(@"(?m)^([ \t]*)-(?=\p{L})")]
+    private static partial Regex LeadingSpeakerDash();
+
+    // Trailing whitespace on any line of a multi-line cue renders nothing; the final Trim only reaches the ends.
+    [GeneratedRegex(@"[ \t]+(?=\n)")]
+    private static partial Regex TrailingLineSpace();
+
     // A straight double quote the splitter parted into two apostrophes.
     [GeneratedRegex(@"''")]
     private static partial Regex DoubleApostrophe();
@@ -248,6 +275,7 @@ public static partial class OcrPostProcessor
                 text = LoneLowercaseL().Replace(text, "I");
                 text = SpeakerLabelL().Replace(text, "I");
                 text = TwoLetterIl().Replace(text, "I");
+                text = SplitContraction().Replace(text, "$1");
             }
 
             // An accented Latin letter the track's language never writes is a misread of its base, which the
@@ -273,6 +301,11 @@ public static partial class OcrPostProcessor
             text = ZeroInWord().Replace(beforeZero, m =>
                 char.IsUpper(beforeZero[m.Index - 1]) && char.IsUpper(beforeZero[m.Index + 1]) ? "O" : "o");
 
+            // A misread l or I, case from the neighbors as with the zero above.
+            var beforeOne = text;
+            text = OneInWord().Replace(beforeOne, m =>
+                char.IsUpper(beforeOne[m.Index - 1]) && char.IsUpper(beforeOne[m.Index + 1]) ? "I" : "l");
+
             // A placeholder in a contraction slot ("it□s", "don□t") is a misread apostrophe.
             text = ContractionPattern(unknownCharacter).Replace(text, "'");
         }
@@ -296,7 +329,14 @@ public static partial class OcrPostProcessor
         // After the fold, so "<i>...</i>" collapses to "…" and not "<i>…</i>".
         text = SingleCharacterItalic().Replace(text, "$1");
 
+        // After the ellipsis fold, so a spaced dot run is already one character and the period rule sees only
+        // lone periods.
+        text = SpaceBeforeComma().Replace(text, ",");
+        text = SpaceBeforePeriod().Replace(text, ".");
+        text = LeadingSpeakerDash().Replace(text, "$1- ");
+
         text = RepeatedSpaces().Replace(text, " ");
+        text = TrailingLineSpace().Replace(text, string.Empty);
 
         return text.Trim();
     }
