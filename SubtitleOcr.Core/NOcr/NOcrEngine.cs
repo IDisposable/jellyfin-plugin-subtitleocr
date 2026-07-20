@@ -52,6 +52,10 @@ public sealed class NOcrEngine
     /// <summary>Letters that reach the cap line (capitals and ascenders), none of them twins.</summary>
     private const string TallLetters = "bdfhklt" + "ABDEFGHIJKLMNPQRTY";
 
+    /// <summary>How many extra wrong pixels the line's italic state may cost before a glyph is allowed to break
+    /// it. Within this, a glyph reads as the line; only a clearly better other-state match switches the line.</summary>
+    private const int ItalicTieMargin = 3;
+
     private readonly NOcrDb _db;
     private readonly NOcrEngineOptions _options;
 
@@ -152,12 +156,15 @@ public sealed class NOcrEngine
 
         var sb = new StringBuilder();
         var inItalic = false;
-        foreach (var m in matched)
+        var lineItalic = false;
+        for (var i = 0; i < matched.Count; i++)
         {
+            var m = matched[i];
             if (m.Item.NewLine && sb.Length > 0)
             {
                 CloseItalic(sb, ref inItalic);
                 sb.Append('\n');
+                lineItalic = false;
             }
             else if (m.Item.GapBefore >= Math.Max(_options.SpaceMinGap, (int)Math.Round(_options.SpaceGapFactor * m.Item.LineHeight)))
             {
@@ -173,12 +180,32 @@ public sealed class NOcrEngine
                 continue;
             }
 
+            // Italic belongs to a whole line, so the state the line has held so far picks the reading of an
+            // ambiguous glyph. The database is scaled per candidate, so a letter's italic and upright shapes
+            // both score against it, and a lone mismatched letter is usually the wrong one winning by a pixel.
+            // When this letter's italic differs from the line, keep the line unless the glyph matches the other
+            // state decisively better; the first glyph of a genuinely italic line switches the line that way.
+            var glyphItalic = match.Italic;
+            if (_options.EmitItalicTags && HasLetterOrDigit(match.Text) && glyphItalic != lineItalic)
+            {
+                var ownError = _db.BestVariantError(m.Item.Bitmap, m.Item.TopMargin, match.Text, glyphItalic, _options.MaxWrongPixels);
+                var lineError = _db.BestVariantError(m.Item.Bitmap, m.Item.TopMargin, match.Text, lineItalic, _options.MaxWrongPixels);
+                if (lineError >= 0 && (ownError < 0 || lineError <= ownError + ItalicTieMargin))
+                {
+                    glyphItalic = lineItalic;
+                }
+                else
+                {
+                    lineItalic = glyphItalic;
+                }
+            }
+
             // Punctuation carries no italic signal (a comma is the same shape either way), so it inherits
             // the current state instead of opening a run of its own or breaking one that spans it.
-            if (_options.EmitItalicTags && match.Italic != inItalic && HasLetterOrDigit(match.Text))
+            if (_options.EmitItalicTags && glyphItalic != inItalic && HasLetterOrDigit(match.Text))
             {
-                sb.Append(match.Italic ? "<i>" : "</i>");
-                inItalic = match.Italic;
+                sb.Append(glyphItalic ? "<i>" : "</i>");
+                inItalic = glyphItalic;
             }
 
             var text = match.Text;

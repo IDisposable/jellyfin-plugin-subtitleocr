@@ -266,6 +266,31 @@ public sealed class NOcrDb
             .GroupBy(oc => SizeKey(oc.Width, oc.Height))
             .ToFrozenDictionary(g => g.Key, g => g.ToArray());
 
+    /// <summary>
+    /// Fewest wrong pixels this bitmap scores against any trained shape of one specific character in one
+    /// specific italic state, or -1 if none match within <paramref name="maxWrongPixels"/>. Lets the engine
+    /// ask how well the same letter reads in the line's italic state, to decide an ambiguous glyph by context.
+    /// </summary>
+    public int BestVariantError(SubBitmap bitmap, int topMargin, string text, bool italic, int maxWrongPixels)
+    {
+        var best = -1;
+        foreach (var oc in OcrCharacters)
+        {
+            if (oc.Italic != italic || !string.Equals(oc.Text, text, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var errors = MatchErrors(bitmap, oc, best < 0 ? maxWrongPixels : best);
+            if (errors >= 0 && (best < 0 || errors < best))
+            {
+                best = errors;
+            }
+        }
+
+        return best;
+    }
+
     private NOcrChar? GetExactMatch(SubBitmap bitmap, int topMargin)
     {
         if (!BySize().TryGetValue(SizeKey(bitmap.Width, bitmap.Height), out var bucket))

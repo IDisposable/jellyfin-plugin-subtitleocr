@@ -117,4 +117,18 @@ public class NOcrDbTests
         Assert.True(tested > 300, $"expected a meaningful sample, tested only {tested}");
         Assert.True(correct >= tested * 95 / 100, $"self-recognition {correct}/{tested} below 95%");
     }
+
+    // The signal the italic disambiguator runs on: how well a bitmap reads as one specific character in one
+    // specific italic state, and -1 when the database has no such shape.
+    [Fact]
+    public void BestVariantError_ScoresOwnVariantAndRejectsAbsentOnes()
+    {
+        var db = NOcrDb.LoadEmbeddedLatin();
+        var glyph = db.OcrCharacters.Find(c => c.Text == "H" && !c.Italic && c.LinesForeground.Count > 5);
+        Assert.NotNull(glyph);
+        var bmp = TestFixtures.RasterizeForeground(glyph!);
+
+        Assert.Equal(0, db.BestVariantError(bmp, glyph!.MarginTop, "H", italic: false, maxWrongPixels: 0));
+        Assert.Equal(-1, db.BestVariantError(bmp, glyph.MarginTop, "❤", italic: false, maxWrongPixels: 0));
+    }
 }
