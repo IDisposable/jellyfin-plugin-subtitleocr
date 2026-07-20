@@ -68,6 +68,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// character name keeps its accent regardless.</summary>
     public bool FoldForeignDiacritics { get; set; } = true;
 
+    /// <summary>Enables the riskier opt-in OCR fixes whose shapes are more distinct (the digit twins 5/S, 8/B,
+    /// 6/b, 9/g between two letters). Off by default: on a clean track these can misread a real digit.</summary>
+    public bool AggressiveOcrFixes { get; set; } = false;
+
     /// <summary>Tags a track whose text describes sound ("[door slams]") as hearing-impaired when the source
     /// flags nothing, as a remuxed disc usually does not.</summary>
     public bool DetectHearingImpaired { get; set; } = true;

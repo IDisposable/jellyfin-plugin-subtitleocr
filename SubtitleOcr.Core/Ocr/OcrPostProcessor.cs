@@ -37,6 +37,11 @@ public static partial class OcrPostProcessor
     [GeneratedRegex(@"(?<=\p{L})1(?=\p{L})")]
     private static partial Regex OneInWord();
 
+    // The riskier digit-letter twins, whose shapes are more distinct than 0/o and 1/l, so this is opt-in
+    // (aggressive) even though a digit between two letters is still rarely a real one: 5/S, 8/B, 6/b, 9/g.
+    [GeneratedRegex(@"(?<=\p{L})[5689](?=\p{L})")]
+    private static partial Regex DigitTwinInWord();
+
     // The splitter opens a gap at a raised apostrophe, parting an enclitic contraction: "do n't", "I 've".
     // Only the closed English enclitics rejoin; a leading-apostrophe word ("get 'em", "'cause") does not.
     [GeneratedRegex(@"(?<=\p{L})[ \t]+(n't\b|'(?:s|ll|re|ve|d|m)\b)")]
@@ -58,6 +63,15 @@ public static partial class OcrPostProcessor
     // Trailing whitespace on any line of a multi-line cue renders nothing; the final Trim only reaches the ends.
     [GeneratedRegex(@"[ \t]+(?=\n)")]
     private static partial Regex TrailingLineSpace();
+
+    // Typographic quotes and stray accent marks a font emits for the apostrophe or quote, folded to the
+    // straight forms the rest of the pipeline emits and players render identically. Guillemets are left alone:
+    // they are a real quotation mark in French and others, not a misread.
+    [GeneratedRegex(@"[‘’‚‛`´]")]
+    private static partial Regex SingleQuoteVariants();
+
+    [GeneratedRegex(@"[“”„‟]")]
+    private static partial Regex DoubleQuoteVariants();
 
     // A straight double quote the splitter parted into two apostrophes.
     [GeneratedRegex(@"''")]
@@ -261,8 +275,13 @@ public static partial class OcrPostProcessor
     /// <paramref name="protectedWords"/> are proper nouns (cast and character names) the diacritic fold must
     /// not touch; it defaults to none. <paramref name="foldForeignDiacritics"/> enables that fold.
     /// </summary>
-    public static string Fix(string text, string normalizedLanguage, char unknownCharacter, bool normalizeEllipsis, IReadOnlySet<string>? protectedWords = null, bool foldForeignDiacritics = true)
+    public static string Fix(string text, string normalizedLanguage, char unknownCharacter, bool normalizeEllipsis, IReadOnlySet<string>? protectedWords = null, bool foldForeignDiacritics = true, bool aggressiveFixes = false)
     {
+        // Fold typographic quotes to the straight forms the pipeline emits, so everything downstream (the
+        // contraction and split-quote fixes, dictionary lookups) sees one form. Universal, any script.
+        text = SingleQuoteVariants().Replace(text, "'");
+        text = DoubleQuoteVariants().Replace(text, "\"");
+
         if (LanguageCodes.IsLatinScript(normalizedLanguage))
         {
             // Before the mid-word rules, which would otherwise read a downcased twin as real lowercase.
@@ -305,6 +324,23 @@ public static partial class OcrPostProcessor
             var beforeOne = text;
             text = OneInWord().Replace(beforeOne, m =>
                 char.IsUpper(beforeOne[m.Index - 1]) && char.IsUpper(beforeOne[m.Index + 1]) ? "I" : "l");
+
+            // Opt-in only: the higher-shape-distance digit twins between two letters, case from the neighbors.
+            if (aggressiveFixes)
+            {
+                var beforeTwin = text;
+                text = DigitTwinInWord().Replace(beforeTwin, m =>
+                {
+                    var upper = char.IsUpper(beforeTwin[m.Index - 1]) && char.IsUpper(beforeTwin[m.Index + 1]);
+                    return m.Value[0] switch
+                    {
+                        '5' => upper ? "S" : "s",
+                        '8' => upper ? "B" : "b",
+                        '6' => upper ? "B" : "b",
+                        _ => upper ? "G" : "g",
+                    };
+                });
+            }
 
             // A placeholder in a contraction slot ("it□s", "don□t") is a misread apostrophe.
             text = ContractionPattern(unknownCharacter).Replace(text, "'");

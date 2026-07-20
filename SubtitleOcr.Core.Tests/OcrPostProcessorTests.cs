@@ -173,6 +173,35 @@ public class OcrPostProcessorTests
         Assert.Equal("Hello\nworld", OcrPostProcessor.Fix("Hello \nworld", English, Placeholder, normalizeEllipsis: false));
     }
 
+    // Typographic quotes fold to the straight forms; guillemets are a real quote mark and are left alone.
+    [Theory]
+    [InlineData("don’t", "don't")]
+    [InlineData("“The end.”", "\"The end.\"")]
+    [InlineData("‘‘go’’", "\"go\"")]
+    [InlineData("«Bonjour»", "«Bonjour»")]
+    public void Fix_TypographicQuotes_FoldToStraight(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
+    // The aggressive digit twins fire only when opted in; case follows the neighbors.
+    [Theory]
+    [InlineData("cla5s", "class")]
+    [InlineData("TA8LE", "TABLE")]
+    public void Fix_AggressiveDigitTwins_WhenEnabled(string input, string expected)
+    {
+        Assert.Equal(expected, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false, protectedWords: null, foldForeignDiacritics: true, aggressiveFixes: true));
+    }
+
+    // Off by default, so a real digit between letters is untouched.
+    [Theory]
+    [InlineData("cla5s")]
+    [InlineData("R2D2")]
+    public void Fix_AggressiveDigitTwins_OffByDefault(string input)
+    {
+        Assert.Equal(input, OcrPostProcessor.Fix(input, English, Placeholder, normalizeEllipsis: false));
+    }
+
     // A single apostrophe (contraction, possessive) is not a quote.
     [Theory]
     [InlineData("don't")]

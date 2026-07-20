@@ -57,6 +57,14 @@
 
                 <div class="checkboxContainer checkboxContainer-withDescription">
                     <label class="emby-checkbox-label">
+                        <input id="AggressiveOcrFixes" name="AggressiveOcrFixes" type="checkbox" is="emby-checkbox" />
+                        <span>Aggressive OCR fixes</span>
+                    </label>
+                    <div class="fieldDescription checkboxFieldDescription">Enable riskier opt-in fixes for the digit twins with more distinct shapes (5/S, 8/B, 6/b, 9/g) between two letters. Off by default, since on a clean track these can misread a real digit.</div>
+                </div>
+
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
                         <input id="DetectHearingImpaired" name="DetectHearingImpaired" type="checkbox" is="emby-checkbox" />
                         <span>Detect hearing-impaired (SDH) tracks</span>
                     </label>
@@ -274,6 +282,7 @@
                     document.querySelector('#UnknownCharacter').value = config.UnknownCharacter || '□';
                     document.querySelector('#NormalizeEllipsis').checked = config.NormalizeEllipsis;
                     document.querySelector('#FoldForeignDiacritics').checked = config.FoldForeignDiacritics;
+                    document.querySelector('#AggressiveOcrFixes').checked = config.AggressiveOcrFixes;
                     document.querySelector('#DetectHearingImpaired').checked = config.DetectHearingImpaired;
                     document.querySelector('#Languages').value = (config.Languages || []).join(', ');
                     document.querySelector('#SpaceMinGap').value = config.SpaceMinGap;
@@ -315,6 +324,7 @@
                     config.UnknownCharacter = document.querySelector('#UnknownCharacter').value;
                     config.NormalizeEllipsis = document.querySelector('#NormalizeEllipsis').checked;
                     config.FoldForeignDiacritics = document.querySelector('#FoldForeignDiacritics').checked;
+                    config.AggressiveOcrFixes = document.querySelector('#AggressiveOcrFixes').checked;
                     config.DetectHearingImpaired = document.querySelector('#DetectHearingImpaired').checked;
                     config.Languages = document.querySelector('#Languages').value
                         .split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s; });
