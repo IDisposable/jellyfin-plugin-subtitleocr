@@ -1,7 +1,7 @@
 ---
 name: "Subtitle OCR"
 guid: "b7a9c2e4-5d31-4f8a-9c06-3e2d1a8b4f70"
-version: "10.11.3.7"
+version: "10.11.3.8"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 overview: "OCR image-based DVD and Blu-ray subtitles to SRT or ASS"
@@ -20,13 +20,14 @@ artifacts:
   - "SubtitleOcr.Core.dll"
   - "WeCantSpell.Hunspell.dll"
 changelog: >
-  The bundled Latin database now includes glyph shapes trained on real disc fonts, so far fewer characters
-  read as the unknown box and the text comes out noticeably cleaner. Recognition is faster as well: the
-  matcher caps each comparison at the best match found so far, rounds and looks up candidates more
-  directly, and skips the multi-segment merge for runs that cannot match, all while reading exactly the
-  same characters. Text correction gains several fixes: the two-letter words It, Is, In and If are read
-  with a lowercase l, a zero between letters becomes o (y0u to you), a split double quote rejoins into
-  one, and padded sound-cue brackets tighten ("[ Sighs ]" to "[Sighs]"). A line that opens a sentence is
-  capitalized after spell-check, so a misread at the start of a line resolves against the dictionary
-  rather than freezing into a name it will not correct. When spell-check is enabled but no dictionary is
-  present, the log now says so instead of leaving the text uncorrected in silence.
+  Italic emphasis follows the whole line, so a stray mid-word italic reads as the run around it while a
+  genuine italic line stays italic. An accented Latin letter foreign to the track's language folds to its
+  base ("Nothing" for "Nothińg"), keeping each language's own accents and leaving a real cast or character
+  name alone; a setting turns it off. Text correction reads a one between two letters as l or I, rejoins a
+  split contraction ("do n't"), closes a space before a comma or period, spaces a leading speaker dash, and
+  folds curly quotes to straight. A cue never ends after the next one begins, and a too-short cue is held to
+  a readable minimum. ASS escapes a literal brace, rounds its timecodes, and places an off-center sign with
+  the full alignment grid. Language and hearing-impaired detection read a cue's words, not its markup, so
+  close languages like Danish and Norwegian separate. Word spacing is calibrated to real disc fonts so
+  run-together words come apart. An optional aggressive mode applies the riskier digit-letter fixes (5/S,
+  8/B) for a poorly scanned disc.
