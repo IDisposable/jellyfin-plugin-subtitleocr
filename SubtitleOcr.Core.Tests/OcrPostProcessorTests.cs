@@ -132,6 +132,17 @@ public class OcrPostProcessorTests
         Assert.Equal("café à côté", OcrPostProcessor.Fix("café à côté", "fra", Placeholder, normalizeEllipsis: false));
     }
 
+    // A cast or character name whose accent is real (it is in the metadata) is not a misread, so it survives
+    // the English fold; an ordinary accented word beside it still folds.
+    [Fact]
+    public void Fix_AccentedProperNoun_IsProtectedFromFold()
+    {
+        var protectedWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "José" };
+        Assert.Equal(
+            "José and Renee cafe",
+            OcrPostProcessor.Fix("José and Renée café", English, Placeholder, normalizeEllipsis: false, protectedWords));
+    }
+
     [Fact]
     public void Fix_NonLatinScript_SkipsLatinHeuristicsButNormalizesWhitespace()
     {

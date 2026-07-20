@@ -256,7 +256,7 @@ public class SubtitleOcrPipeline
                                 {
                                     Start = image.Start,
                                     End = image.End,
-                                    Text = OcrPostProcessor.Fix(result.Text, normalizedLanguage, config.Placeholder, config.NormalizeEllipsis),
+                                    Text = OcrPostProcessor.Fix(result.Text, normalizedLanguage, config.Placeholder, config.NormalizeEllipsis, effectiveProtected),
                                     VerticalCenter = image.VerticalCenter,
                                     Color = binarized.ForegroundColor,
                                 };
