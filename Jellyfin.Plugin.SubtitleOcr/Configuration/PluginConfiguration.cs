@@ -80,7 +80,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public int SpaceMinGap { get; set; } = 6;
 
     /// <summary>Word-space gap as a fraction of subtitle line height, so the threshold scales with resolution.</summary>
-    public double SpaceGapFactor { get; set; } = 0.30;
+    public double SpaceGapFactor { get; set; } = 0.25;
 
     /// <summary>Only OCR these subtitle languages (ISO 639, e.g. eng, und). Empty extracts every language.</summary>
     public string[] Languages { get; set; } = Array.Empty<string>();

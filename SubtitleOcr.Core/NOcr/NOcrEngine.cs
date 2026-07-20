@@ -10,8 +10,9 @@ public sealed class NOcrEngineOptions
     public int SpaceMinGap { get; init; } = 6;
 
     /// <summary>Word-space gap as a fraction of the text line height, so the threshold scales with subtitle
-    /// resolution (a fixed pixel gap splits large Blu-ray text between every letter).</summary>
-    public double SpaceGapFactor { get; init; } = 0.30;
+    /// resolution (a fixed pixel gap splits large Blu-ray text between every letter). Lower reads more gaps as
+    /// word breaks; higher runs words together.</summary>
+    public double SpaceGapFactor { get; init; } = 0.25;
 
     /// <summary>Errors tolerated per glyph in loose cascade passes.</summary>
     public int MaxWrongPixels { get; init; } = 25;
