@@ -1,7 +1,7 @@
 ---
 name: "Subtitle OCR"
 guid: "b7a9c2e4-5d31-4f8a-9c06-3e2d1a8b4f70"
-version: "10.11.3.8"
+version: "10.11.4.0"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 overview: "OCR image-based DVD and Blu-ray subtitles to SRT or ASS"
@@ -20,14 +20,34 @@ artifacts:
   - "SubtitleOcr.Core.dll"
   - "WeCantSpell.Hunspell.dll"
 changelog: >
-  Italic emphasis follows the whole line, so a stray mid-word italic reads as the run around it while a
-  genuine italic line stays italic. An accented Latin letter foreign to the track's language folds to its
-  base ("Nothing" for "Nothińg"), keeping each language's own accents and leaving a real cast or character
-  name alone; a setting turns it off. Text correction reads a one between two letters as l or I, rejoins a
-  split contraction ("do n't"), closes a space before a comma or period, spaces a leading speaker dash, and
-  folds curly quotes to straight. A cue never ends after the next one begins, and a too-short cue is held to
-  a readable minimum. ASS escapes a literal brace, rounds its timecodes, and places an off-center sign with
-  the full alignment grid. Language and hearing-impaired detection read a cue's words, not its markup, so
-  close languages like Danish and Norwegian separate. Word spacing is calibrated to real disc fonts so
-  run-together words come apart. An optional aggressive mode applies the riskier digit-letter fixes (5/S,
-  8/B) for a poorly scanned disc.
+  Recognition is far more accurate and roughly three times faster. The bundled Latin database carries glyph
+  shapes trained on real disc fonts, so few characters read as the unknown box. A file gives up every
+  subtitle track in one pass rather than one pass per track, tracks recognize in parallel (Max parallelism
+  leaves half the cores to playback), and image buffers are reused, so a run no longer drives the full
+  garbage collections that interrupt playback. The matcher takes the best matching glyph rather than the
+  first the database lists, reads case from the image's own x-height and cap height, splits a merged glyph
+  pair, matches a multi-segment glyph on shape at any size, and follows the line's italic state so a stray
+  mid-word italic reads as the run around it. Whether a track is light text on a dark outline or the reverse
+  is read off the track itself, per track, so the Invert luma setting is gone, and word spacing is
+  calibrated to real disc fonts.
+
+  Output keeps more of the disc. ASS carries the color the subtitles were drawn in as its style, with an
+  override only on the lines that differ, places an off-center sign on the full alignment grid, escapes a
+  literal brace, and rounds its timecodes; Auto picks ASS for a track that is positioned or uses more than
+  one color. A cue never ends after the next one begins, a too-short cue is held to a 750 ms readable
+  minimum, and a re-sent duplicate cue merges with its neighbor.
+
+  Text correction covers misread digits (a 1 between letters as l or I, a 0 as o), the two-letter words It,
+  Is, In and If, a lowercase l after a speaker label, split contractions and quotes, punctuation spacing, a
+  leading speaker dash, curly quotes, and padded sound-cue brackets. An accented Latin letter foreign to the
+  track's language folds to its base ("Nothing" for "Nothińg"), keeping each language's own accents and
+  leaving cast and character names alone. Spell-check protects names in singular and plural and runs before
+  sentence casing, so a misread at the start of a line resolves against the dictionary instead of freezing
+  into a name. The l-to-I fixes are English-only, so French keeps its elided articles. Language and
+  hearing-impaired detection read a cue's words, not its markup, so close languages like Danish and
+  Norwegian separate, and a track the database cannot really read is discarded rather than shipped.
+
+  The extraction log is its own dashboard page, with a Reprocess all button that runs the reprocess task and
+  shows its progress, and a per-row reprocess for a single item. New settings: Fold foreign accents (on),
+  and Aggressive OCR fixes (off) for the riskier digit twins 5/S and 8/B on a poorly scanned disc. The
+  plugin is built against 10.11.0, the target ABI it declares, so it loads on every 10.11 server.
